@@ -35,9 +35,11 @@ export function ScrollView({ sections, renderPane }: Props) {
         </div>
       </nav>
 
-      <div className="space-y-8">
+      {/* min-w-0: this is the grid's 1fr item; without it grid `min-width:auto` lets the
+          side-by-side editor+preview overflow its track and spill over the comments panel. */}
+      <div className="min-w-0 space-y-8">
         {sections.map((section) => (
-          <section key={section.id} id={`section-${section.id}`} className="scroll-mt-4">
+          <section key={section.id} id={`section-${section.id}`} className="min-w-0 scroll-mt-4">
             <p className="mb-2 font-mono text-[0.7rem] uppercase tracking-[0.18em] text-muted-foreground">
               {sectionLabel(section)}
             </p>
