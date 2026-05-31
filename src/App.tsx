@@ -3,6 +3,7 @@ import { motion } from "framer-motion"
 import { AuthProvider, useAuth } from "@/hooks/useAuth"
 import { Login } from "@/pages/Login"
 import { Dashboard } from "@/pages/Dashboard"
+import { ProjectPage } from "@/pages/ProjectPage"
 
 function Splash() {
   return (
@@ -37,6 +38,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<Dashboard />} />
+      <Route path="/projects/:id" element={<ProjectPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
