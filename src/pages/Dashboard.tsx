@@ -1,14 +1,23 @@
-import { useState } from "react"
-import { Link } from "react-router-dom"
+import { useCallback, useEffect, useState } from "react"
+import { Link, useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
 import { Plus } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
 import { useProjects } from "@/hooks/useProjects"
 import { useActivity } from "@/hooks/useActivity"
+import { acceptInvite, declineInvite } from "@/hooks/useSession"
+import { supabase } from "@/lib/supabase"
 import { ProjectList } from "@/components/projects/ProjectList"
 import { NewProjectModal } from "@/components/projects/NewProjectModal"
 import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "@/lib/utils"
+
+interface InviteView {
+  inviteId: string
+  sessionId: string
+  promptTitle: string
+  hostName: string
+}
 
 export function Dashboard() {
   const { user, profile, signOut } = useAuth()
@@ -16,6 +25,70 @@ export function Dashboard() {
   const { items: myActivity } = useActivity({ actorId: user?.id, enabled: !!user, limit: 6 })
   const [createOpen, setCreateOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  const navigate = useNavigate()
+  const [invites, setInvites] = useState<InviteView[]>([])
+
+  const loadInvites = useCallback(async () => {
+    if (!user) return
+    const { data: inv } = await supabase
+      .from("session_invites")
+      .select("id, session_id")
+      .eq("invitee_id", user.id)
+      .eq("status", "pending")
+    const rows = inv ?? []
+    if (!rows.length) {
+      setInvites([])
+      return
+    }
+    const { data: sessions } = await supabase
+      .from("sessions")
+      .select("id, prompt_id, host_id, status")
+      .in("id", rows.map((r) => r.session_id))
+    const live = (sessions ?? []).filter((s) => s.status === "active")
+    const byId = new Map(live.map((s) => [s.id, s]))
+    const { data: prompts } = live.length
+      ? await supabase.from("prompts").select("id, title").in("id", [...new Set(live.map((s) => s.prompt_id))])
+      : { data: [] as { id: string; title: string }[] }
+    const { data: hosts } = live.length
+      ? await supabase.from("profiles").select("id, username").in("id", [...new Set(live.map((s) => s.host_id))])
+      : { data: [] as { id: string; username: string }[] }
+    const titleById = new Map((prompts ?? []).map((p) => [p.id, p.title]))
+    const nameById = new Map((hosts ?? []).map((h) => [h.id, h.username]))
+    setInvites(
+      rows
+        .filter((r) => byId.has(r.session_id))
+        .map((r) => {
+          const s = byId.get(r.session_id)!
+          return {
+            inviteId: r.id,
+            sessionId: r.session_id,
+            promptTitle: titleById.get(s.prompt_id) ?? "a prompt",
+            hostName: nameById.get(s.host_id) ?? "someone",
+          }
+        }),
+    )
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+    void loadInvites()
+    const channel = supabase.channel(`user:${user.id}`)
+    channel.on("broadcast", { event: "invited" }, () => void loadInvites()).subscribe()
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [user, loadInvites])
+
+  async function acceptSession(invite: InviteView) {
+    if (!user) return
+    const res = await acceptInvite({ userId: user.id, sessionId: invite.sessionId, inviteId: invite.inviteId })
+    if (!res.error) navigate(`/sessions/${invite.sessionId}`)
+  }
+
+  async function declineSession(invite: InviteView) {
+    await declineInvite(invite.inviteId)
+    void loadInvites()
+  }
 
   const active = projects.filter((p) => !p.archived)
   const archived = projects.filter((p) => p.archived)
@@ -45,6 +118,36 @@ export function Dashboard() {
         transition={{ duration: 0.45, ease: "easeOut" }}
         className="mx-auto max-w-5xl px-6 py-10"
       >
+        {invites.length > 0 && (
+          <section className="mb-8 rounded-lg border border-brand/40 bg-brand/5 p-4">
+            <h2 className="mb-3 font-mono text-[0.7rem] uppercase tracking-[0.2em] text-brand">
+              Live session invites
+            </h2>
+            <div className="space-y-2">
+              {invites.map((invite) => (
+                <div key={invite.inviteId} className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm">
+                    <span className="font-mono text-brand">@{invite.hostName}</span> invited you to a session on{" "}
+                    <span className="font-medium">{invite.promptTitle}</span>
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => void acceptSession(invite)}
+                      className="bg-brand font-medium text-brand-foreground hover:bg-brand/90"
+                    >
+                      Join
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => void declineSession(invite)}>
+                      Decline
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {myActivity.length > 0 && (
           <section className="mb-10">
             <h2 className="mb-3 font-mono text-[0.7rem] uppercase tracking-[0.2em] text-muted-foreground">

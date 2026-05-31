@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { motion } from "framer-motion"
-import { ArrowLeft, Copy, GitFork, History, Save } from "lucide-react"
+import { ArrowLeft, Copy, GitFork, History, Radio, Save } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
 import {
   deletePromptRow,
@@ -14,6 +14,7 @@ import { supabase } from "@/lib/supabase"
 import { ForkModal } from "@/components/prompts/ForkModal"
 import { PromptEditor } from "@/components/editor/PromptEditor"
 import { VersionHistory } from "@/components/prompts/VersionHistory"
+import { StartSessionModal } from "@/components/session/StartSessionModal"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,6 +63,7 @@ export function PromptPage() {
   const [stale, setStale] = useState(false)
   const [editorKey, setEditorKey] = useState(0)
   const [canComment, setCanComment] = useState(false)
+  const [sessionOpen, setSessionOpen] = useState(false)
 
   // version_counter captured when the prompt was opened (optimistic-lock baseline).
   const openCounterRef = useRef<number | null>(null)
@@ -228,6 +230,10 @@ export function PromptPage() {
                   <GitFork className="mr-1.5 size-3.5" />
                   Fork
                 </Button>
+                <Button variant="outline" size="sm" onClick={() => setSessionOpen(true)}>
+                  <Radio className="mr-1.5 size-3.5" />
+                  Live session
+                </Button>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -281,6 +287,16 @@ export function PromptPage() {
         }}
         onDuplicated={(newId) => navigate(`/prompts/${newId}`)}
       />
+
+      {isOwner && (
+        <StartSessionModal
+          open={sessionOpen}
+          onOpenChange={setSessionOpen}
+          prompt={prompt}
+          sections={sections}
+          onStarted={(sessionId) => navigate(`/sessions/${sessionId}`)}
+        />
+      )}
 
       <Dialog
         open={saveOpen}

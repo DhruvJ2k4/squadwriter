@@ -5,6 +5,7 @@ import { Login } from "@/pages/Login"
 import { Dashboard } from "@/pages/Dashboard"
 import { ProjectPage } from "@/pages/ProjectPage"
 import { PromptPage } from "@/pages/PromptPage"
+import { SessionPage } from "@/pages/SessionPage"
 
 function Splash() {
   return (
@@ -41,6 +42,7 @@ function AppRoutes() {
       <Route path="/" element={<Dashboard />} />
       <Route path="/projects/:id" element={<ProjectPage />} />
       <Route path="/prompts/:promptId" element={<PromptPage />} />
+      <Route path="/sessions/:id" element={<SessionPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
