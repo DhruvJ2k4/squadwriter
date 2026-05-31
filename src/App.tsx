@@ -1,32 +1,54 @@
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
 import { motion } from "framer-motion"
-import { APP_NAME } from "@/lib/config"
+import { AuthProvider, useAuth } from "@/hooks/useAuth"
+import { Login } from "@/pages/Login"
+import { Dashboard } from "@/pages/Dashboard"
+
+function Splash() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
+        className="flex items-baseline gap-0.5"
+      >
+        <span className="font-display text-xl font-semibold tracking-tight">SquadWriter</span>
+        <span
+          aria-hidden
+          className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.12em] bg-brand animate-caret-blink"
+        />
+      </motion.div>
+    </div>
+  )
+}
+
+function AppRoutes() {
+  const { session, profile, loading, profileReady } = useAuth()
+
+  // Still resolving the session, or the session is known but the profile fetch
+  // hasn't settled yet — show the splash to avoid a flash of the wrong screen.
+  if (loading || (session && !profileReady)) return <Splash />
+
+  // Unauthenticated, or authenticated without a profile (needs a username).
+  // Login renders sign-in / sign-up or the username step based on auth state.
+  if (!session || !profile) return <Login />
+
+  return (
+    <Routes>
+      <Route path="/" element={<Dashboard />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  )
+}
 
 function App() {
   return (
-    <div className="min-h-screen bg-background text-foreground antialiased">
-      <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center gap-6 px-6 text-center">
-        {/* GPU-friendly entrance: animates opacity + transform only (see CLAUDE.md §7) */}
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, ease: "easeOut" }}
-          className="flex flex-col items-center gap-4"
-        >
-          <div className="grid size-14 place-items-center rounded-2xl bg-primary text-2xl font-semibold text-primary-foreground shadow-sm">
-            S
-          </div>
-          <div className="space-y-1.5">
-            <h1 className="text-3xl font-semibold tracking-tight">{APP_NAME}</h1>
-            <p className="text-sm text-muted-foreground">
-              Internal prompt editor &amp; store for SquadStack
-            </p>
-          </div>
-          <span className="rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">
-            Stage 1 · scaffold ready
-          </span>
-        </motion.div>
-      </main>
-    </div>
+    <BrowserRouter>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </BrowserRouter>
   )
 }
 
