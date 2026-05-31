@@ -1,0 +1,37 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.*
+
+# Build output
+dist
+dist-ssr
+build
+
+# Local env files — NEVER commit real keys (see .env.example)
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+*.local
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# TypeScript / build info
+*.tsbuildinfo
