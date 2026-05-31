@@ -35,6 +35,20 @@ variables prefixed with `VITE_`:
 - `VITE_SUPABASE_URL` — `https://<project-ref>.supabase.co`
 - `VITE_SUPABASE_ANON_KEY` — anon/public key (data is protected by Row-Level Security)
 
+## Deploy (Vercel)
+
+1. Push to GitHub — a **private** repo is recommended (internal tool).
+2. On Vercel: **Add New → Project**, import the repo. The **Vite** preset is auto-detected
+   (build `npm run build`, output `dist`).
+3. Add **Environment Variables** (Production + Preview):
+   - `VITE_SUPABASE_URL` — `https://<project-ref>.supabase.co`
+   - `VITE_SUPABASE_ANON_KEY` — your Supabase anon/public key
+4. Deploy. `vercel.json` rewrites all routes to `index.html`, so client-side routes
+   (e.g. `/projects/:id`) work on refresh and deep links.
+5. In **Supabase → Authentication → URL Configuration**, set **Site URL** to your Vercel
+   URL (and add it under Redirect URLs) so email-confirmation links resolve in production.
+
 ## Build status
 
-- **Stage 1 — Scaffold** ✅ project scaffolded; folder tree, theme shell, Supabase client, config.
+Stages 1–8 complete: scaffold · database + RLS · auth + domain lock · projects + membership ·
+prompts (four types) · the editor · versions + diff · deploy config.
