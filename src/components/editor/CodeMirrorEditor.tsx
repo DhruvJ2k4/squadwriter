@@ -15,6 +15,7 @@ import { bracketMatching, indentOnInput } from "@codemirror/language"
 import { closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete"
 import { markdown } from "@codemirror/lang-markdown"
 import { json } from "@codemirror/lang-json"
+import { html } from "@codemirror/lang-html"
 import {
   addComments,
   commentLayer,
@@ -36,10 +37,10 @@ const baseExtensions: Extension = [
   keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...completionKeymap, indentWithTab]),
 ]
 
-function languageExtension(language: "markdown" | "json"): Extension {
-  return language === "json"
-    ? [json(), lineNumbers(), highlightActiveLineGutter()]
-    : [markdown()]
+function languageExtension(language: "markdown" | "json" | "html"): Extension {
+  if (language === "json") return [json(), lineNumbers(), highlightActiveLineGutter()]
+  if (language === "html") return [html(), lineNumbers(), highlightActiveLineGutter()]
+  return [markdown()]
 }
 
 function editableExtension(editable: boolean): Extension {
@@ -57,7 +58,7 @@ interface Props {
   value: string
   onChange?: (value: string) => void
   editable?: boolean
-  language?: "markdown" | "json"
+  language?: "markdown" | "json" | "html"
   themeExtension: Extension
   extraExtensions?: Extension[]
   className?: string

@@ -36,6 +36,15 @@ export function AdminConsole() {
   const nameById = new Map(users.map((u) => [u.id, u.username]))
   const projectById = new Map(projects.map((p) => [p.id, p.name]))
 
+  // §3.5 — admins raise a project's report limit (guarded by is_admin() in the RPC).
+  async function updateMaxReports(projectId: string, next: number) {
+    if (next < 1) return
+    const { error } = await supabase.rpc("admin_set_max_reports", { p_project: projectId, p_max: next })
+    if (!error) {
+      setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, max_reports: next } : p)))
+    }
+  }
+
   const tabs: { value: Tab; label: string; count: number }[] = [
     { value: "users", label: "Users", count: users.length },
     { value: "projects", label: "Projects", count: projects.length },
@@ -52,7 +61,7 @@ export function AdminConsole() {
         <div className="flex items-center gap-2">
           <span className="font-display text-sm font-semibold">Admin console</span>
           <span className="rounded-full border border-border/60 px-2 py-0.5 font-mono text-[0.6rem] uppercase tracking-wider text-muted-foreground">
-            read-only
+            admin
           </span>
         </div>
       </header>
@@ -100,7 +109,7 @@ export function AdminConsole() {
               )}
               {tab === "projects" && (
                 <>
-                  <Head cols={["Project", "Client", "Owner", "State", "Created"]} />
+                  <Head cols={["Project", "Client", "Owner", "State", "Reports", "Created"]} />
                   <tbody>
                     {projects.map((p) => (
                       <tr key={p.id} className="border-t border-border/40">
@@ -112,6 +121,26 @@ export function AdminConsole() {
                         <Cell className="text-muted-foreground">{p.client_name || "—"}</Cell>
                         <Cell className="text-muted-foreground">@{nameById.get(p.owner_id) ?? "?"}</Cell>
                         <Cell className="text-muted-foreground">{p.archived ? "archived" : "active"}</Cell>
+                        <Cell>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => void updateMaxReports(p.id, (p.max_reports ?? 1) - 1)}
+                              disabled={(p.max_reports ?? 1) <= 1}
+                              aria-label="Decrease report limit"
+                              className="flex size-5 items-center justify-center rounded border border-border/60 text-muted-foreground hover:text-foreground disabled:opacity-40"
+                            >
+                              −
+                            </button>
+                            <span className="w-4 text-center tabular-nums">{p.max_reports ?? 1}</span>
+                            <button
+                              onClick={() => void updateMaxReports(p.id, (p.max_reports ?? 1) + 1)}
+                              aria-label="Increase report limit"
+                              className="flex size-5 items-center justify-center rounded border border-border/60 text-muted-foreground hover:text-foreground"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </Cell>
                         <Cell className="text-muted-foreground">{formatRelativeTime(p.created_at)}</Cell>
                       </tr>
                     ))}

@@ -24,6 +24,7 @@ export type CommentType = "note" | "suggestion"
 export type CommentStatus = "open" | "resolved" | "ignored" | "applied" | "text_changed"
 export type SessionStatus = "active" | "ended"
 export type InviteStatus = "pending" | "accepted" | "declined"
+export type ReportStatus = "draft" | "published"
 
 export interface Database {
   public: {
@@ -60,6 +61,7 @@ export interface Database {
           use_case: string | null
           owner_id: string
           archived: boolean
+          max_reports: number
           created_at: string
         }
         Insert: {
@@ -69,6 +71,7 @@ export interface Database {
           use_case?: string | null
           owner_id: string
           archived?: boolean
+          max_reports?: number
           created_at?: string
         }
         Update: {
@@ -78,6 +81,7 @@ export interface Database {
           use_case?: string | null
           owner_id?: string
           archived?: boolean
+          max_reports?: number
           created_at?: string
         }
         Relationships: [
@@ -547,6 +551,63 @@ export interface Database {
           },
         ]
       }
+      reports: {
+        Row: {
+          id: string
+          project_id: string
+          author_id: string
+          title: string
+          html_source: string
+          html_published: string
+          public_token: string | null
+          status: ReportStatus
+          created_at: string
+          updated_at: string
+          published_at: string | null
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          author_id: string
+          title?: string
+          html_source?: string
+          html_published?: string
+          public_token?: string | null
+          status?: ReportStatus
+          created_at?: string
+          updated_at?: string
+          published_at?: string | null
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          author_id?: string
+          title?: string
+          html_source?: string
+          html_published?: string
+          public_token?: string | null
+          status?: ReportStatus
+          created_at?: string
+          updated_at?: string
+          published_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reports_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reports_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -554,7 +615,14 @@ export interface Database {
     // RLS helper functions (is_admin, can_read_prompt, …) exist server-side but
     // are not exposed as client RPCs, so they are intentionally not typed here.
     Functions: {
-      [_ in never]: never
+      get_published_report: {
+        Args: { p_token: string }
+        Returns: { title: string; html_published: string; published_at: string | null }[]
+      }
+      admin_set_max_reports: {
+        Args: { p_project: string; p_max: number }
+        Returns: undefined
+      }
     }
     Enums: {
       member_role: MemberRole
@@ -565,6 +633,7 @@ export interface Database {
       comment_status: CommentStatus
       session_status: SessionStatus
       invite_status: InviteStatus
+      report_status: ReportStatus
     }
     CompositeTypes: {
       [_ in never]: never
@@ -593,3 +662,4 @@ export type Session = Tables<"sessions">
 export type SessionParticipant = Tables<"session_participants">
 export type SessionInvite = Tables<"session_invites">
 export type Activity = Tables<"activity">
+export type Report = Tables<"reports">

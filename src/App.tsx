@@ -12,6 +12,12 @@ const SessionPage = lazy(() => import("@/pages/SessionPage").then((m) => ({ defa
 const AdminConsole = lazy(() =>
   import("@/components/admin/AdminConsole").then((m) => ({ default: m.AdminConsole })),
 )
+const ReportEditor = lazy(() =>
+  import("@/pages/ReportEditor").then((m) => ({ default: m.ReportEditor })),
+)
+const PublicReport = lazy(() =>
+  import("@/pages/PublicReport").then((m) => ({ default: m.PublicReport })),
+)
 
 function Splash() {
   return (
@@ -36,6 +42,17 @@ function AppRoutes() {
   const { session, profile, loading, profileReady } = useAuth()
   const location = useLocation()
 
+  // Public, unauthenticated report pages (§3.4) — rendered before the auth wall.
+  if (location.pathname.startsWith("/r/")) {
+    return (
+      <Suspense fallback={<Splash />}>
+        <Routes location={location}>
+          <Route path="/r/:token" element={<PublicReport />} />
+        </Routes>
+      </Suspense>
+    )
+  }
+
   if (loading || (session && !profileReady)) return <Splash />
   if (!session || !profile) return <Login />
 
@@ -50,6 +67,7 @@ function AppRoutes() {
         <Routes location={location}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/projects/:id" element={<ProjectPage />} />
+          <Route path="/projects/:id/report" element={<ReportEditor />} />
           <Route path="/prompts/:promptId" element={<PromptPage />} />
           <Route path="/sessions/:id" element={<SessionPage />} />
           <Route

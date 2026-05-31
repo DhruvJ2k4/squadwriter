@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { motion } from "framer-motion"
-import { ArrowLeft, Pencil, Plus, Users } from "lucide-react"
+import { ArrowLeft, FileText, Pencil, Plus, Users } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
 import { useActivity } from "@/hooks/useActivity"
 import { setProjectArchivedRow, updateProjectRow } from "@/hooks/useProjects"
@@ -183,27 +183,39 @@ export function ProjectPage() {
             )}
           </div>
 
-          {isOwner && (
+          {canAuthor && (
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-                <Pencil className="mr-1.5 size-3.5" />
-                Edit
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setMembersOpen(true)}>
-                <Users className="mr-1.5 size-3.5" />
-                Members
-              </Button>
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                onClick={async () => {
-                  await setProjectArchivedRow(user!.id, project.id, !project.archived)
-                  await reloadAll()
-                }}
-                className="font-mono text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => navigate(`/projects/${project.id}/report`)}
               >
-                {project.archived ? "Unarchive" : "Archive"}
+                <FileText className="mr-1.5 size-3.5" />
+                Report
               </Button>
+              {isOwner && (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+                    <Pencil className="mr-1.5 size-3.5" />
+                    Edit
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setMembersOpen(true)}>
+                    <Users className="mr-1.5 size-3.5" />
+                    Members
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      await setProjectArchivedRow(user!.id, project.id, !project.archived)
+                      await reloadAll()
+                    }}
+                    className="font-mono text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    {project.archived ? "Unarchive" : "Archive"}
+                  </Button>
+                </>
+              )}
             </div>
           )}
         </div>
