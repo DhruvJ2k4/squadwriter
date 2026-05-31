@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import type { Database } from "@/lib/types"
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -15,4 +16,4 @@ if (!supabaseUrl || !supabaseAnonKey) {
  * Uses the anon/public key only — every table read/write is gated by
  * Row-Level Security (defined in Stage 2). Never use a service-role key here.
  */
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey)
