@@ -66,6 +66,9 @@ interface Props {
   onCommentReport?: (reports: AnchorReport[], deletedIds: string[]) => void
   onCommentSelect?: (id: string) => void
   onSelectionChange?: (selection: Selection | null) => void
+  /** Scroll a document position into view. Bump `revealNonce` each time to (re)trigger it. */
+  revealPos?: number
+  revealNonce?: number
 }
 
 export function CodeMirrorEditor({
@@ -80,6 +83,8 @@ export function CodeMirrorEditor({
   onCommentReport,
   onCommentSelect,
   onSelectionChange,
+  revealPos,
+  revealNonce,
 }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -196,6 +201,27 @@ export function CodeMirrorEditor({
     if (effects.length) editorView.dispatch({ effects })
     prevComments.current = comments
   }, [comments])
+
+  // Scroll the requested position into view (works for both the page-scrolled prompt editors
+  // and the internally-scrolled session editors — we scroll the anchor's DOM node).
+  useEffect(() => {
+    if (revealNonce === undefined || revealPos === undefined) return
+    const editorView = view.current
+    if (!editorView) return
+    const pos = Math.max(0, Math.min(revealPos, editorView.state.doc.length))
+    requestAnimationFrame(() => {
+      const v = view.current
+      if (!v) return
+      try {
+        const dom = v.domAtPos(pos).node
+        const el = dom.nodeType === Node.TEXT_NODE ? dom.parentElement : (dom as Element)
+        el?.scrollIntoView({ behavior: "smooth", block: "center" })
+      } catch {
+        /* position out of range after a concurrent edit — ignore */
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealNonce])
 
   return <div ref={host} className={className} />
 }

@@ -79,14 +79,23 @@ export function VersionHistory({ open, onOpenChange, prompt, isOwner, onRestored
       )
     )
       return
+    // versions are newest-first; deleting the current latest rolls the prompt back automatically
+    // to the next-latest version (no manual "Restore" needed).
+    const wasLatest = versions[0]?.id === version.id
+    const nextLatest = versions.find((v) => v.id !== version.id) ?? null
     setBusy(version.id)
     setError(null)
     const res = await deleteVersion(version, prompt)
-    setBusy(null)
     if (res.error) {
+      setBusy(null)
       setError(res.error)
       return
     }
+    if (wasLatest && nextLatest) {
+      const restored = await restoreVersion(nextLatest, prompt)
+      if (!restored.error) onRestored()
+    }
+    setBusy(null)
     setSelected((prev) => prev.filter((x) => x !== version.id))
   }
 

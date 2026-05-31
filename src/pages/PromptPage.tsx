@@ -180,7 +180,7 @@ export function PromptPage() {
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, ease: "easeOut" }}
-        className="mx-auto max-w-6xl px-6 py-10"
+        className="mx-auto max-w-[110rem] px-4 py-8"
       >
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>

@@ -92,6 +92,8 @@ interface SectionPaneProps {
   ) => Promise<{ error: string | null }>
   onCommentReport: (reports: AnchorReport[], deletedIds: string[]) => void
   onCommentSelect: (id: string) => void
+  revealPos?: number
+  revealNonce?: number
 }
 
 function SectionPane({
@@ -112,6 +114,8 @@ function SectionPane({
   onCreateComment,
   onCommentReport,
   onCommentSelect,
+  revealPos,
+  revealNonce,
 }: SectionPaneProps) {
   const [selection, setSelection] = useState<Selection | null>(null)
   const [mode, setMode] = useState<ComposeMode | null>(null)
@@ -119,6 +123,7 @@ function SectionPane({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const rowRef = useRef<HTMLDivElement>(null)
+  const editorWrapRef = useRef<HTMLDivElement>(null)
 
   const anchoredText = selection ? value.slice(selection.from, selection.to) : ""
   const horizontal = preview && isWide
@@ -161,16 +166,22 @@ function SectionPane({
     window.addEventListener("pointerup", onUp)
   }
 
-  // §2.5 — anchor the composer near the selection, clamped inside the pane.
-  const paneWidth = rowRef.current?.clientWidth ?? 0
+  // §2.5 — anchor the composer near the selection, clamped INSIDE the editor pane so it never
+  // overlaps the preview (the scroll-mode bug); the box shrinks to fit a narrow pane.
+  const wrapWidth = editorWrapRef.current?.clientWidth ?? 0
+  const composerWidth = Math.max(220, Math.min(COMPOSER_WIDTH, wrapWidth - 16))
   const composerLeft = selection?.coords
-    ? Math.max(0, Math.min(selection.coords.left, Math.max(0, paneWidth - COMPOSER_WIDTH - 8)))
+    ? Math.max(0, Math.min(selection.coords.left, Math.max(0, wrapWidth - composerWidth - 8)))
     : 0
   const composerTop = selection?.coords ? selection.coords.bottom + 8 : 8
 
   return (
-    <div ref={rowRef} className={cn("relative flex min-w-0 gap-3", horizontal ? "flex-row" : "flex-col")}>
-      <div className="min-w-0" style={horizontal ? { width: `${splitPct}%` } : undefined}>
+    <div ref={rowRef} className={cn("flex min-w-0 gap-3", horizontal ? "flex-row" : "flex-col")}>
+      <div
+        ref={editorWrapRef}
+        className="relative min-w-0"
+        style={horizontal ? { width: `${splitPct}%` } : undefined}
+      >
         <CodeMirrorEditor
           key={epoch}
           value={value}
@@ -183,34 +194,17 @@ function SectionPane({
           onCommentReport={onCommentReport}
           onCommentSelect={onCommentSelect}
           onSelectionChange={setSelection}
+          revealPos={revealPos}
+          revealNonce={revealNonce}
           className="h-full overflow-hidden rounded-md border border-border/60"
         />
-      </div>
 
-      {horizontal && (
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          onPointerDown={startResize}
-          title="Drag to resize"
-          className="group relative w-2 shrink-0 cursor-col-resize"
-        >
-          <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/70 transition-colors group-hover:bg-brand" />
-        </div>
-      )}
-
-      {preview && (
-        <div className={cn("min-w-0", horizontal && "flex-1")}>
-          <MarkdownPreview source={value} palette={palette} className="h-full" />
-        </div>
-      )}
-
-      {canComment && selection && (
-        <div
-          className="absolute z-20 w-72 rounded-md border border-brand/40 bg-popover p-2.5 shadow-md"
-          style={{ top: composerTop, left: composerLeft }}
-        >
-          {mode === null ? (
+        {canComment && selection && (
+          <div
+            className="absolute z-20 rounded-md border border-brand/40 bg-popover p-2.5 shadow-md"
+            style={{ top: composerTop, left: composerLeft, width: composerWidth }}
+          >
+            {mode === null ? (
             <div className="flex items-center justify-between gap-2">
               <span className="truncate font-mono text-[0.7rem] text-muted-foreground">
                 “{anchoredText.slice(0, 32)}
@@ -271,6 +265,25 @@ function SectionPane({
               </div>
             </div>
           )}
+          </div>
+        )}
+      </div>
+
+      {horizontal && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          onPointerDown={startResize}
+          title="Drag to resize"
+          className="group relative w-2 shrink-0 cursor-col-resize"
+        >
+          <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/70 transition-colors group-hover:bg-brand" />
+        </div>
+      )}
+
+      {preview && (
+        <div className={cn("min-w-0", horizontal && "flex-1")}>
+          <MarkdownPreview source={value} palette={palette} className="h-full" />
         </div>
       )}
     </div>
@@ -309,6 +322,7 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
   const [splitPct, setSplitPct] = useState(50)
   const [saveState, setSaveState] = useState<SaveState>("idle")
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null)
+  const [reveal, setReveal] = useState<{ sectionId: string; pos: number; nonce: number } | null>(null)
   const isWide = useIsWide()
 
   const seededId = useRef<string | null>(null)
@@ -512,14 +526,15 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
     setActiveCommentId(null)
   }
 
-  function handleFocusComment(sectionId: string, commentId: string) {
-    setActiveId(sectionId)
-    setActiveCommentId(commentId)
-    if (viewMode === "scroll") {
-      window.setTimeout(() => {
-        document.getElementById(`section-${sectionId}`)?.scrollIntoView({ behavior: "smooth", block: "start" })
-      }, 50)
-    }
+  // Focusing a comment jumps the editor to its anchored selection (§ jump-to-selection fix).
+  function handleFocusComment(comment: CommentWithAuthor) {
+    setActiveId(comment.section_id)
+    setActiveCommentId(comment.id)
+    setReveal((r) => ({
+      sectionId: comment.section_id,
+      pos: comment.anchor_start,
+      nonce: (r?.nonce ?? 0) + 1,
+    }))
   }
 
   const renderPane = (section: PromptSection) => {
@@ -552,6 +567,8 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
         onCreateComment={handleCreateComment}
         onCommentReport={reportAnchors}
         onCommentSelect={setActiveCommentId}
+        revealPos={reveal?.sectionId === section.id ? reveal.pos : undefined}
+        revealNonce={reveal?.sectionId === section.id ? reveal.nonce : undefined}
       />
     )
   }
@@ -658,7 +675,7 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
                 isOwner={canEdit}
                 canReply={canComment}
                 currentUserId={user?.id}
-                onFocus={(c) => handleFocusComment(c.section_id, c.id)}
+                onFocus={(c) => handleFocusComment(c)}
                 onResolve={(id) => void setStatus(id, "resolved")}
                 onIgnore={(id) => void setStatus(id, "ignored")}
                 onApply={(c) => void handleApply(c)}

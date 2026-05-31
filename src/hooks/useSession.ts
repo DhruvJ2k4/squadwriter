@@ -13,6 +13,9 @@ export interface ChatMessage {
   sticker: boolean
   /** Optional quoted prompt selection (§2.7 "comment on this selection"). */
   quote?: string
+  /** Origin of the quote, so clicking it in chat can jump back to that line. */
+  quoteSectionId?: string
+  quoteFrom?: number
   ts: number
 }
 
@@ -195,7 +198,10 @@ export function useSession(sessionId: string | undefined) {
   )
 
   const sendChat = useCallback(
-    (body: string, opts?: { sticker?: boolean; quote?: string }) => {
+    (
+      body: string,
+      opts?: { sticker?: boolean; quote?: string; quoteSectionId?: string; quoteFrom?: number },
+    ) => {
       if (!user || !channelRef.current) return
       const msg: ChatMessage = {
         id: crypto.randomUUID(),
@@ -204,6 +210,8 @@ export function useSession(sessionId: string | undefined) {
         body,
         sticker: opts?.sticker ?? false,
         quote: opts?.quote,
+        quoteSectionId: opts?.quoteSectionId,
+        quoteFrom: opts?.quoteFrom,
         ts: Date.now(),
       }
       void channelRef.current.send({ type: "broadcast", event: "chat", payload: msg })

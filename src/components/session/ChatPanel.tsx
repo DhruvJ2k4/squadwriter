@@ -43,9 +43,11 @@ interface Props {
   messages: ChatMessage[]
   currentUserId: string | undefined
   onSend: (body: string, opts?: { sticker?: boolean; quote?: string }) => void
+  /** Click a quoted reference to jump to that line in the prompt (§ live-session fix). */
+  onQuoteClick?: (m: ChatMessage) => void
 }
 
-export function ChatPanel({ messages, currentUserId, onSend }: Props) {
+export function ChatPanel({ messages, currentUserId, onSend, onQuoteClick }: Props) {
   const [text, setText] = useState("")
   const endRef = useRef<HTMLDivElement>(null)
 
@@ -77,9 +79,15 @@ export function ChatPanel({ messages, currentUserId, onSend }: Props) {
               ) : (
                 <div className={cn("flex max-w-[14rem] flex-col gap-1", mine ? "items-end" : "items-start")}>
                   {m.quote && (
-                    <span className="w-full break-words rounded-md border-l-2 border-brand/60 bg-background/50 px-2 py-1 text-[0.7rem] italic text-muted-foreground">
+                    <button
+                      type="button"
+                      onClick={() => onQuoteClick?.(m)}
+                      disabled={!onQuoteClick}
+                      title="Jump to this selection"
+                      className="w-full break-words rounded-md border-l-2 border-brand/60 bg-background/50 px-2 py-1 text-left text-[0.7rem] italic text-muted-foreground transition-colors hover:bg-background/80 hover:text-foreground disabled:cursor-default"
+                    >
                       “{m.quote.length > 140 ? `${m.quote.slice(0, 140)}…` : m.quote}”
-                    </span>
+                    </button>
                   )}
                   {m.body ? (
                     <span

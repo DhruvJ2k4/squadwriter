@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react"
 import { Link } from "react-router-dom"
 import { ArrowLeft, MessageSquare } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
-import { useSession } from "@/hooks/useSession"
+import { useSession, type ChatMessage } from "@/hooks/useSession"
 import { usePresence } from "@/hooks/usePresence"
 import { CodeMirrorEditor, type Selection } from "@/components/editor/CodeMirrorEditor"
 import { variableHighlighter } from "@/components/editor/VariableHighlighter"
@@ -18,6 +18,40 @@ import type { PromptSection } from "@/lib/types"
 function tabLabel(section: PromptSection): string {
   if (section.section_type === "rag_json") return "JSON"
   return section.title || (section.section_type === "main" ? "Main" : "Stage")
+}
+
+/** Keep the two session editors' scroll positions in sync, by ratio (§ scroll together). */
+function useSyncedScroll(
+  aRef: RefObject<HTMLDivElement | null>,
+  bRef: RefObject<HTMLDivElement | null>,
+  rebindKey: string,
+  enabled: boolean,
+) {
+  useEffect(() => {
+    if (!enabled) return
+    const a = aRef.current?.querySelector<HTMLElement>(".cm-scroller")
+    const b = bRef.current?.querySelector<HTMLElement>(".cm-scroller")
+    if (!a || !b) return
+    let lock = false
+    const sync = (from: HTMLElement, to: HTMLElement) => {
+      if (lock) return
+      lock = true
+      const max = from.scrollHeight - from.clientHeight
+      const ratio = max > 0 ? from.scrollTop / max : 0
+      to.scrollTop = ratio * Math.max(0, to.scrollHeight - to.clientHeight)
+      requestAnimationFrame(() => {
+        lock = false
+      })
+    }
+    const onA = () => sync(a, b)
+    const onB = () => sync(b, a)
+    a.addEventListener("scroll", onA, { passive: true })
+    b.addEventListener("scroll", onB, { passive: true })
+    return () => {
+      a.removeEventListener("scroll", onA)
+      b.removeEventListener("scroll", onB)
+    }
+  }, [aRef, bRef, rebindKey, enabled])
 }
 
 export function SessionRoom({ sessionId }: { sessionId: string }) {
@@ -46,6 +80,9 @@ export function SessionRoom({ sessionId }: { sessionId: string }) {
   const [merging, setMerging] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
   const [mySelection, setMySelection] = useState<Selection | null>(null)
+  const [reveal, setReveal] = useState<{ pos: number; nonce: number } | null>(null)
+  const myColRef = useRef<HTMLDivElement>(null)
+  const otherColRef = useRef<HTMLDivElement>(null)
 
   const mySections = useMemo(
     () => myCopy.filter((s) => !s.archived).sort((a, b) => a.position - b.position),
@@ -74,6 +111,9 @@ export function SessionRoom({ sessionId }: { sessionId: string }) {
     [myActiveContent],
   )
 
+  // §1 — scroll both working copies together.
+  useSyncedScroll(myColRef, otherColRef, `${activeId}-${otherParticipant?.userId ?? "none"}`, !!otherParticipant)
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -101,13 +141,23 @@ export function SessionRoom({ sessionId }: { sessionId: string }) {
     saveWorkingCopy(myCopy.map((s) => (s.id === activeId ? { ...s, content } : s)))
   }
 
-  // §2.7 — drop the current selection into chat as a quoted reference.
+  // §2.7 — drop the current selection into chat as a quoted reference (clickable to jump back).
   function commentSelectionToChat() {
     if (!mySelection) return
     const text = myActiveContent.slice(mySelection.from, mySelection.to)
     if (!text.trim()) return
-    sendChat("", { quote: text })
+    sendChat("", { quote: text, quoteSectionId: activeId, quoteFrom: mySelection.from })
     setMySelection(null)
+  }
+
+  // Clicking a quoted reference in chat jumps to that line in your copy.
+  function jumpToQuote(m: ChatMessage) {
+    if (m.quoteSectionId && mySections.some((s) => s.id === m.quoteSectionId)) {
+      setActiveId(m.quoteSectionId)
+    }
+    if (m.quoteFrom !== undefined) {
+      setReveal((r) => ({ pos: m.quoteFrom as number, nonce: (r?.nonce ?? 0) + 1 }))
+    }
   }
 
   return (
@@ -192,7 +242,7 @@ export function SessionRoom({ sessionId }: { sessionId: string }) {
             )}
 
             <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
-              <div className="flex min-h-0 flex-col">
+              <div ref={myColRef} className="flex min-h-0 flex-col">
                 <div className="mb-1.5 flex items-center justify-between gap-2">
                   <p className="font-mono text-[0.65rem] uppercase tracking-[0.18em] text-brand">You</p>
                   {mySelection && (
@@ -214,10 +264,12 @@ export function SessionRoom({ sessionId }: { sessionId: string }) {
                   themeExtension={theme}
                   extraExtensions={myExtras}
                   onSelectionChange={setMySelection}
+                  revealPos={reveal?.pos}
+                  revealNonce={reveal?.nonce}
                   className="flex-1 overflow-auto rounded-md border border-border/60"
                 />
               </div>
-              <div className="flex min-h-0 flex-col">
+              <div ref={otherColRef} className="flex min-h-0 flex-col">
                 <p className="mb-1.5 font-mono text-[0.65rem] uppercase tracking-[0.18em] text-muted-foreground">
                   {otherParticipant ? `@${otherParticipant.username}` : "Waiting for a partner…"}
                 </p>
@@ -235,7 +287,7 @@ export function SessionRoom({ sessionId }: { sessionId: string }) {
           </div>
 
           <aside className="hidden w-80 shrink-0 border-l border-border/60 p-4 md:block">
-            <ChatPanel messages={messages} currentUserId={user?.id} onSend={sendChat} />
+            <ChatPanel messages={messages} currentUserId={user?.id} onSend={sendChat} onQuoteClick={jumpToQuote} />
           </aside>
         </main>
       )}
