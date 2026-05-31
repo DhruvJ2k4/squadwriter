@@ -10,6 +10,7 @@ import {
   usePrompt,
 } from "@/hooks/usePrompt"
 import { ForkModal } from "@/components/prompts/ForkModal"
+import { PromptEditor } from "@/components/editor/PromptEditor"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,19 +23,13 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import type { PromptType, SectionType } from "@/lib/types"
+import type { PromptType } from "@/lib/types"
 
 const TYPE_LABEL: Record<PromptType, string> = {
   monolithic: "Monolithic",
   prompt_chaining: "Chaining",
   rag_enabled: "RAG",
   entity: "Entity",
-}
-
-const SECTION_LABEL: Record<SectionType, string> = {
-  main: "Main",
-  stage: "Stage",
-  rag_json: "RAG JSON",
 }
 
 export function PromptPage() {
@@ -46,7 +41,6 @@ export function PromptPage() {
   const [deleteOpen, setDeleteOpen] = useState(false)
 
   const isOwner = !!prompt && prompt.owner_id === user?.id
-  const visibleSections = sections.filter((s) => !s.archived)
 
   if (loading && !prompt) {
     return (
@@ -166,33 +160,9 @@ export function PromptPage() {
           )}
         </div>
 
-        <p className="mt-6 font-mono text-[0.7rem] uppercase tracking-[0.2em] text-muted-foreground">
-          Sections · {visibleSections.length}
-        </p>
-
-        <div className="mt-3 space-y-4">
-          {visibleSections.map((section) => (
-            <div key={section.id} className="overflow-hidden rounded-lg border border-border/70">
-              <div className="flex items-center justify-between border-b border-border/60 bg-card/40 px-4 py-2">
-                <span className="text-sm font-medium">{section.title || SECTION_LABEL[section.section_type]}</span>
-                <span className="font-mono text-[0.6rem] uppercase tracking-wider text-muted-foreground">
-                  {SECTION_LABEL[section.section_type]}
-                </span>
-              </div>
-              {section.content.trim() ? (
-                <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words px-4 py-3 font-mono text-xs leading-relaxed text-foreground/90">
-                  {section.content}
-                </pre>
-              ) : (
-                <p className="px-4 py-3 font-mono text-xs text-muted-foreground">Empty.</p>
-              )}
-            </div>
-          ))}
+        <div className="mt-8">
+          <PromptEditor prompt={prompt} initialSections={sections} canEdit={isOwner} />
         </div>
-
-        <p className="mt-8 font-mono text-[0.7rem] text-muted-foreground/80">
-          Read-only preview — the full editor arrives in Stage 6.
-        </p>
       </motion.main>
 
       {isOwner && user && (
