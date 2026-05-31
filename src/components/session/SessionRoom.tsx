@@ -10,6 +10,7 @@ import { DEFAULT_THEME_NAME, ThemeSelector, getThemeExtension } from "@/componen
 import { PresenceBar } from "@/components/session/PresenceBar"
 import { SessionTimer } from "@/components/session/SessionTimer"
 import { ChatPanel } from "@/components/session/ChatPanel"
+import { MergeView } from "@/components/session/MergeView"
 import { cn } from "@/lib/utils"
 import type { PromptSection } from "@/lib/types"
 
@@ -31,7 +32,7 @@ export function SessionRoom({ sessionId }: { sessionId: string }) {
     saveWorkingCopy,
     sendChat,
     extend,
-    end,
+    finalize,
   } = useSession(sessionId)
 
   const presence = usePresence(
@@ -42,6 +43,8 @@ export function SessionRoom({ sessionId }: { sessionId: string }) {
   const [themeName, setThemeName] = useState(DEFAULT_THEME_NAME)
   const extras = useMemo(() => [variableHighlighter()], [])
   const [activeId, setActiveId] = useState<string>("")
+  const [merging, setMerging] = useState(false)
+  const [finalizing, setFinalizing] = useState(false)
 
   const mySections = useMemo(
     () => myCopy.filter((s) => !s.archived).sort((a, b) => a.position - b.position),
@@ -101,7 +104,10 @@ export function SessionRoom({ sessionId }: { sessionId: string }) {
           ended={ended}
           isHost={isHost}
           onExtend={(m) => void extend(m)}
-          onEnd={() => void end()}
+          onEnd={() => setMerging(true)}
+          onExpire={() => {
+            if (isHost) setMerging(true)
+          }}
         />
       </header>
 
@@ -115,7 +121,9 @@ export function SessionRoom({ sessionId }: { sessionId: string }) {
       ) : ended ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3">
           <p className="font-display text-2xl">Session ended.</p>
-          <p className="font-mono text-xs text-muted-foreground">Merge &amp; finalize arrives in Stage 12.</p>
+          <p className="font-mono text-xs text-muted-foreground">
+            The result was merged into a new version of the prompt.
+          </p>
           <Link to={`/prompts/${session.prompt_id}`} className="mt-2 font-mono text-xs text-brand hover:underline">
             Back to prompt
           </Link>
@@ -179,6 +187,23 @@ export function SessionRoom({ sessionId }: { sessionId: string }) {
             <ChatPanel messages={messages} currentUserId={user?.id} onSend={sendChat} />
           </aside>
         </main>
+      )}
+
+      {isHost && (
+        <MergeView
+          open={merging}
+          hostSections={myCopy}
+          otherSections={otherSections}
+          otherName={otherParticipant?.username ?? "partner"}
+          busy={finalizing}
+          onCancel={() => setMerging(false)}
+          onFinalize={async (merged) => {
+            setFinalizing(true)
+            const res = await finalize(merged)
+            setFinalizing(false)
+            if (!res.error) setMerging(false)
+          }}
+        />
       )}
     </div>
   )

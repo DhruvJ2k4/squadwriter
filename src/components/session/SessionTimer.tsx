@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -12,9 +12,10 @@ interface Props {
   isHost: boolean
   onExtend: (minutes: number) => void
   onEnd: () => void
+  onExpire?: () => void
 }
 
-export function SessionTimer({ endsAt, ended, isHost, onExtend, onEnd }: Props) {
+export function SessionTimer({ endsAt, ended, isHost, onExtend, onEnd, onExpire }: Props) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 1000)
@@ -23,6 +24,15 @@ export function SessionTimer({ endsAt, ended, isHost, onExtend, onEnd }: Props) 
 
   const remaining = new Date(endsAt).getTime() - now
   const isOver = ended || remaining <= 0
+
+  // Fire once when the clock actually runs out (not when ended externally).
+  const expiredRef = useRef(false)
+  useEffect(() => {
+    if (!ended && remaining <= 0 && !expiredRef.current) {
+      expiredRef.current = true
+      onExpire?.()
+    }
+  }, [ended, remaining, onExpire])
   const warning = !isOver && remaining < 5 * 60000
   const mins = Math.max(0, Math.floor(remaining / 60000))
   const secs = Math.max(0, Math.floor((remaining % 60000) / 1000))

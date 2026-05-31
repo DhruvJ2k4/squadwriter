@@ -219,12 +219,49 @@ export function useSession(sessionId: string | undefined) {
     [session],
   )
 
-  const end = useCallback(async () => {
-    if (!session) return
-    setSession((s) => (s ? { ...s, status: "ended" } : s))
-    await supabase.from("sessions").update({ status: "ended" }).eq("id", session.id)
-    channelRef.current?.send({ type: "broadcast", event: "ended", payload: {} })
-  }, [session])
+  /** End the session: persist the (merged or host) result, snapshot, and clean up. */
+  const finalize = useCallback(
+    async (mergedSections: PromptSection[]): Promise<{ error: string | null }> => {
+      if (!session || !user) return { error: "Not ready." }
+      const snapshot = { sections: mergedSections } as unknown as Json
+
+      // 1. write the result to the live prompt sections (ids are stable across the session)
+      for (const s of mergedSections) {
+        await supabase.from("prompt_sections").update({ content: s.content }).eq("id", s.id)
+      }
+      // 2. save the result as a new version + bump the counter
+      await supabase.from("prompt_versions").insert({
+        prompt_id: session.prompt_id,
+        snapshot,
+        saved_by: user.id,
+        label: "Live session merge",
+      })
+      const { data: pc } = await supabase
+        .from("prompts")
+        .select("version_counter")
+        .eq("id", session.prompt_id)
+        .maybeSingle()
+      if (pc) {
+        await supabase
+          .from("prompts")
+          .update({ version_counter: pc.version_counter + 1 })
+          .eq("id", session.prompt_id)
+      }
+      // 3. store the after-snapshot and mark ended (the session row + before/after is kept)
+      await supabase
+        .from("sessions")
+        .update({ after_snapshot: snapshot, status: "ended" })
+        .eq("id", session.id)
+      // 4. delete the ephemeral working copies + invites
+      await supabase.from("session_participants").delete().eq("session_id", session.id)
+      await supabase.from("session_invites").delete().eq("session_id", session.id)
+
+      setSession((s) => (s ? { ...s, status: "ended" } : s))
+      channelRef.current?.send({ type: "broadcast", event: "ended", payload: {} })
+      return { error: null }
+    },
+    [session, user],
+  )
 
   const isHost = !!session && session.host_id === user?.id
 
@@ -239,7 +276,7 @@ export function useSession(sessionId: string | undefined) {
     saveWorkingCopy,
     sendChat,
     extend,
-    end,
+    finalize,
     refetch: load,
   }
 }

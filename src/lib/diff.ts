@@ -30,3 +30,65 @@ export function lineDiff(before: string, after: string): DiffLine[] {
   }
   return out
 }
+
+// --- line-level merge (Stage 12) -------------------------------------------
+
+export type MergeChoice = "host" | "other" | "both" | "drop"
+
+export type MergeSegment =
+  | { id: number; kind: "same"; lines: string[] }
+  | { id: number; kind: "conflict"; host: string[]; other: string[] }
+
+function toLines(value: string): string[] {
+  const lines = value.split("\n")
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop()
+  return lines
+}
+
+/**
+ * Segment a 2-way diff (host vs other) into "same" runs and "conflict" runs the
+ * host resolves. A removed block (host's lines) pairs with the following added
+ * block (other's lines) into one conflict.
+ */
+export function mergeSegments(hostText: string, otherText: string): MergeSegment[] {
+  const changes = diffLines(hostText, otherText)
+  const segments: MergeSegment[] = []
+  let id = 0
+  for (let i = 0; i < changes.length; i++) {
+    const change = changes[i]
+    if (!change.added && !change.removed) {
+      segments.push({ id: id++, kind: "same", lines: toLines(change.value) })
+      continue
+    }
+    if (change.removed) {
+      const host = toLines(change.value)
+      let other: string[] = []
+      if (i + 1 < changes.length && changes[i + 1].added) {
+        other = toLines(changes[i + 1].value)
+        i++
+      }
+      segments.push({ id: id++, kind: "conflict", host, other })
+    } else {
+      // lone addition (other added lines the host doesn't have)
+      segments.push({ id: id++, kind: "conflict", host: [], other: toLines(change.value) })
+    }
+  }
+  return segments
+}
+
+/** Build the merged text from segments + the host's per-conflict choices (default: host). */
+export function applyMerge(segments: MergeSegment[], choices: Record<number, MergeChoice>): string {
+  const out: string[] = []
+  for (const seg of segments) {
+    if (seg.kind === "same") {
+      out.push(...seg.lines)
+      continue
+    }
+    const pick = choices[seg.id] ?? "host"
+    if (pick === "host") out.push(...seg.host)
+    else if (pick === "other") out.push(...seg.other)
+    else if (pick === "both") out.push(...seg.host, ...seg.other)
+    // "drop" → contribute nothing
+  }
+  return out.join("\n")
+}
