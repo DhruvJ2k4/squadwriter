@@ -1,4 +1,5 @@
-import { Plus, Trash2 } from "lucide-react"
+import { useState } from "react"
+import { Pencil, Plus, Trash2 } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -7,12 +8,27 @@ import type { PromptSection } from "@/lib/types"
 interface Props {
   stages: PromptSection[] // all stage sections, including archived
   onAdd: () => void
+  onRename: (stage: PromptSection, title: string) => void
   onArchiveToggle: (stage: PromptSection) => void
   onDelete: (stage: PromptSection) => void
 }
 
-export function StageDropdown({ stages, onAdd, onArchiveToggle, onDelete }: Props) {
+export function StageDropdown({ stages, onAdd, onRename, onArchiveToggle, onDelete }: Props) {
   const activeCount = stages.filter((s) => !s.archived).length
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState("")
+
+  function startEdit(stage: PromptSection) {
+    setEditingId(stage.id)
+    setDraft(stage.title || "")
+  }
+
+  function commit(stage: PromptSection) {
+    const next = draft.trim()
+    if (next && next !== (stage.title ?? "")) onRename(stage, next)
+    setEditingId(null)
+  }
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -27,27 +43,59 @@ export function StageDropdown({ stages, onAdd, onArchiveToggle, onDelete }: Prop
           ) : (
             stages.map((stage) => (
               <div key={stage.id} className="flex items-center gap-2 rounded px-1 py-1">
-                <span
-                  className={cn(
-                    "flex-1 truncate text-sm",
-                    stage.archived && "text-muted-foreground line-through",
-                  )}
-                >
-                  {stage.title || "Stage"}
-                </span>
-                <button
-                  onClick={() => onArchiveToggle(stage)}
-                  className="font-mono text-[0.7rem] text-muted-foreground hover:text-foreground"
-                >
-                  {stage.archived ? "restore" : "archive"}
-                </button>
-                <button
-                  onClick={() => onDelete(stage)}
-                  className="text-muted-foreground hover:text-destructive"
-                  aria-label="Delete stage"
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
+                {editingId === stage.id ? (
+                  <input
+                    autoFocus
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onBlur={() => commit(stage)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        commit(stage)
+                      } else if (e.key === "Escape") {
+                        e.preventDefault()
+                        setEditingId(null)
+                      }
+                    }}
+                    className="h-6 flex-1 rounded border border-brand/50 bg-transparent px-1.5 text-sm outline-none focus:border-brand"
+                  />
+                ) : (
+                  <button
+                    onClick={() => startEdit(stage)}
+                    title="Rename stage"
+                    className={cn(
+                      "flex-1 truncate text-left text-sm hover:text-brand",
+                      stage.archived && "text-muted-foreground line-through",
+                    )}
+                  >
+                    {stage.title || "Stage"}
+                  </button>
+                )}
+                {editingId !== stage.id && (
+                  <>
+                    <button
+                      onClick={() => startEdit(stage)}
+                      className="text-muted-foreground hover:text-foreground"
+                      aria-label="Rename stage"
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                    <button
+                      onClick={() => onArchiveToggle(stage)}
+                      className="font-mono text-[0.7rem] text-muted-foreground hover:text-foreground"
+                    >
+                      {stage.archived ? "restore" : "archive"}
+                    </button>
+                    <button
+                      onClick={() => onDelete(stage)}
+                      className="text-muted-foreground hover:text-destructive"
+                      aria-label="Delete stage"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
             ))
           )}

@@ -151,6 +151,19 @@ export async function deletePromptRow(
   return { error: null }
 }
 
+export async function renamePromptRow(
+  actorId: string,
+  promptId: string,
+  projectId: string,
+  title: string,
+): Promise<MutationResult> {
+  const clean = title.trim()
+  const { error } = await supabase.from("prompts").update({ title: clean }).eq("id", promptId)
+  if (error) return { error: error.message }
+  await logActivity({ projectId, actorId, verb: "renamed prompt", target: clean })
+  return { error: null }
+}
+
 /** List a project's prompts + create. */
 export function usePrompts(projectId: string | undefined) {
   const { user } = useAuth()

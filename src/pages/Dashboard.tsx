@@ -3,12 +3,13 @@ import { Link, useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
 import { Plus } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
-import { useProjects } from "@/hooks/useProjects"
+import { useProjects, type ProjectWithRole } from "@/hooks/useProjects"
 import { useActivity } from "@/hooks/useActivity"
 import { acceptInvite, declineInvite } from "@/hooks/useSession"
 import { supabase } from "@/lib/supabase"
 import { ProjectList } from "@/components/projects/ProjectList"
 import { NewProjectModal } from "@/components/projects/NewProjectModal"
+import { RenameDialog } from "@/components/ui/RenameDialog"
 import { Button } from "@/components/ui/button"
 import { UserMenu } from "@/components/ui/UserMenu"
 import { formatRelativeTime } from "@/lib/utils"
@@ -22,9 +23,10 @@ interface InviteView {
 
 export function Dashboard() {
   const { user } = useAuth()
-  const { projects, loading, createProject, setArchived } = useProjects()
-  const { items: myActivity } = useActivity({ actorId: user?.id, enabled: !!user, limit: 6 })
+  const { projects, loading, createProject, updateProject, setArchived } = useProjects()
+  const { items: myActivity } = useActivity({ actorId: user?.id, enabled: !!user, limit: 5 })
   const [createOpen, setCreateOpen] = useState(false)
+  const [renameProject, setRenameProject] = useState<ProjectWithRole | null>(null)
   const [showArchived, setShowArchived] = useState(false)
   const navigate = useNavigate()
   const [invites, setInvites] = useState<InviteView[]>([])
@@ -199,7 +201,11 @@ export function Dashboard() {
             </Button>
           </div>
         ) : (
-          <ProjectList projects={active} onArchiveToggle={(p) => void setArchived(p.id, !p.archived)} />
+          <ProjectList
+            projects={active}
+            onRename={setRenameProject}
+            onArchiveToggle={(p) => void setArchived(p.id, !p.archived)}
+          />
         )}
 
         {archived.length > 0 && (
@@ -214,6 +220,7 @@ export function Dashboard() {
               <div className="mt-4">
                 <ProjectList
                   projects={archived}
+                  onRename={setRenameProject}
                   onArchiveToggle={(p) => void setArchived(p.id, !p.archived)}
                 />
               </div>
@@ -223,6 +230,19 @@ export function Dashboard() {
       </motion.main>
 
       <NewProjectModal open={createOpen} onOpenChange={setCreateOpen} onSubmit={createProject} />
+
+      {renameProject && (
+        <RenameDialog
+          open={!!renameProject}
+          onOpenChange={(o) => !o && setRenameProject(null)}
+          title="Rename project"
+          initialValue={renameProject.name}
+          onSubmit={async (name) => {
+            const res = await updateProject(renameProject.id, { name })
+            return { error: res.error }
+          }}
+        />
+      )}
     </div>
   )
 }

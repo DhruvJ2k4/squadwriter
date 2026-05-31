@@ -21,6 +21,7 @@ const TYPE_LABEL: Record<PromptType, string> = {
 interface Props {
   prompts: Prompt[]
   currentUserId: string | undefined
+  onRename: (prompt: Prompt) => void
   onArchiveToggle: (prompt: Prompt) => void
   onDuplicate: (prompt: Prompt) => void
   onFork: (prompt: Prompt) => void
@@ -30,6 +31,7 @@ interface Props {
 export function PromptList({
   prompts,
   currentUserId,
+  onRename,
   onArchiveToggle,
   onDuplicate,
   onFork,
@@ -83,6 +85,7 @@ export function PromptList({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="font-mono text-xs">
+                    <DropdownMenuItem onClick={() => onRename(prompt)}>Rename</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onDuplicate(prompt)}>Duplicate</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onFork(prompt)}>Fork to project…</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onArchiveToggle(prompt)}>

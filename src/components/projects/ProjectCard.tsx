@@ -21,10 +21,11 @@ const roleClass: Record<MemberRole, string> = {
 
 interface Props {
   project: ProjectWithRole
+  onRename: (project: ProjectWithRole) => void
   onArchiveToggle: (project: ProjectWithRole) => void
 }
 
-export function ProjectCard({ project, onArchiveToggle }: Props) {
+export function ProjectCard({ project, onRename, onArchiveToggle }: Props) {
   const isOwner = project.myRole === "owner"
 
   return (
@@ -75,6 +76,7 @@ export function ProjectCard({ project, onArchiveToggle }: Props) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="font-mono text-xs">
+              <DropdownMenuItem onClick={() => onRename(project)}>Rename</DropdownMenuItem>
               <DropdownMenuItem onClick={() => onArchiveToggle(project)}>
                 {project.archived ? "Unarchive" : "Archive"}
               </DropdownMenuItem>

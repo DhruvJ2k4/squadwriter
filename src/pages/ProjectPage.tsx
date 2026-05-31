@@ -8,6 +8,7 @@ import { setProjectArchivedRow, updateProjectRow } from "@/hooks/useProjects"
 import {
   deletePromptRow,
   duplicatePrompt,
+  renamePromptRow,
   setPromptArchivedRow,
   usePrompts,
 } from "@/hooks/usePrompt"
@@ -16,6 +17,7 @@ import { NewProjectModal } from "@/components/projects/NewProjectModal"
 import { MembersModal, type MemberRow } from "@/components/projects/MembersModal"
 import { NewPromptModal } from "@/components/prompts/NewPromptModal"
 import { PromptList } from "@/components/prompts/PromptList"
+import { RenameDialog } from "@/components/ui/RenameDialog"
 import { ForkModal } from "@/components/prompts/ForkModal"
 import {
   AlertDialog,
@@ -46,9 +48,10 @@ export function ProjectPage() {
   const [newPromptOpen, setNewPromptOpen] = useState(false)
   const [forkTarget, setForkTarget] = useState<Prompt | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Prompt | null>(null)
+  const [renamePrompt, setRenamePrompt] = useState<Prompt | null>(null)
   const [showArchivedPrompts, setShowArchivedPrompts] = useState(false)
 
-  const { items: activity, refetch: refetchActivity } = useActivity({ projectId: id, enabled: !!id })
+  const { items: activity, refetch: refetchActivity } = useActivity({ projectId: id, enabled: !!id, limit: 5 })
   const { prompts, createPrompt, refetch: refetchPrompts } = usePrompts(id)
 
   const load = useCallback(async () => {
@@ -240,6 +243,7 @@ export function ProjectPage() {
               <PromptList
                 prompts={activePrompts}
                 currentUserId={user?.id}
+                onRename={setRenamePrompt}
                 onDuplicate={handleDuplicate}
                 onFork={(p) => setForkTarget(p)}
                 onArchiveToggle={handleArchivePrompt}
@@ -260,6 +264,7 @@ export function ProjectPage() {
                     <PromptList
                       prompts={archivedPrompts}
                       currentUserId={user?.id}
+                      onRename={setRenamePrompt}
                       onDuplicate={handleDuplicate}
                       onFork={(p) => setForkTarget(p)}
                       onArchiveToggle={handleArchivePrompt}
@@ -396,6 +401,20 @@ export function ProjectPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {renamePrompt && user && (
+        <RenameDialog
+          open={!!renamePrompt}
+          onOpenChange={(o) => !o && setRenamePrompt(null)}
+          title="Rename prompt"
+          initialValue={renamePrompt.title}
+          onSubmit={async (title) => {
+            const res = await renamePromptRow(user.id, renamePrompt.id, renamePrompt.project_id, title)
+            if (!res.error) await afterPromptChange()
+            return { error: res.error }
+          }}
+        />
+      )}
     </div>
   )
 }

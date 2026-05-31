@@ -22,7 +22,7 @@ interface Props {
 }
 
 export function VersionHistory({ open, onOpenChange, prompt, isOwner, onRestored, onDuplicated }: Props) {
-  const { versions, loading, restoreVersion, duplicateAsNewPrompt } = useVersions(prompt.id)
+  const { versions, loading, restoreVersion, duplicateAsNewPrompt, deleteVersion } = useVersions(prompt.id)
   const [selected, setSelected] = useState<string[]>([])
   const [diffPair, setDiffPair] = useState<[VersionWithAuthor, VersionWithAuthor] | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -69,6 +69,25 @@ export function VersionHistory({ open, onOpenChange, prompt, isOwner, onRestored
     }
     onOpenChange(false)
     onDuplicated(res.id)
+  }
+
+  async function handleDelete(version: VersionWithAuthor) {
+    if (versions.length <= 1) return // never delete the only remaining version
+    if (
+      !window.confirm(
+        "Delete this version permanently? Any comments anchored to this version are also removed. This can't be undone.",
+      )
+    )
+      return
+    setBusy(version.id)
+    setError(null)
+    const res = await deleteVersion(version, prompt)
+    setBusy(null)
+    if (res.error) {
+      setError(res.error)
+      return
+    }
+    setSelected((prev) => prev.filter((x) => x !== version.id))
   }
 
   return (
@@ -159,6 +178,16 @@ export function VersionHistory({ open, onOpenChange, prompt, isOwner, onRestored
                           className="font-mono text-xs"
                         >
                           Duplicate
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy === version.id || versions.length <= 1}
+                          onClick={() => void handleDelete(version)}
+                          title={versions.length <= 1 ? "Can't delete the only version" : "Delete version"}
+                          className="font-mono text-xs text-muted-foreground hover:text-destructive"
+                        >
+                          Delete
                         </Button>
                       </div>
                     )}

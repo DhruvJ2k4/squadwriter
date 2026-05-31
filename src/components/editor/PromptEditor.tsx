@@ -325,6 +325,11 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
     )
   }, [])
 
+  const renameStage = useCallback(async (stage: PromptSection, title: string) => {
+    await supabase.from("prompt_sections").update({ title }).eq("id", stage.id)
+    setLocalSections((prev) => prev.map((s) => (s.id === stage.id ? { ...s, title } : s)))
+  }, [])
+
   const slashExtension = useMemo(
     () =>
       slashCommands([
@@ -467,6 +472,7 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
             <StageDropdown
               stages={stageSections}
               onAdd={() => void addStage()}
+              onRename={(s, title) => void renameStage(s, title)}
               onArchiveToggle={(s) => void archiveStage(s)}
               onDelete={(s) => void deleteStage(s)}
             />

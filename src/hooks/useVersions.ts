@@ -176,5 +176,31 @@ export function useVersions(promptId: string | undefined) {
     [user],
   )
 
-  return { versions, loading, refetch, saveVersion, restoreVersion, duplicateAsNewPrompt }
+  /** Permanently delete one version row (owner-only; comments on that version cascade away). */
+  const deleteVersion = useCallback(
+    async (version: PromptVersion, prompt: Prompt): Promise<Result> => {
+      if (!user) return { error: "Not signed in." }
+      const { error } = await supabase.from("prompt_versions").delete().eq("id", version.id)
+      if (error) return { error: error.message }
+      await logActivity({
+        projectId: prompt.project_id,
+        actorId: user.id,
+        verb: "deleted a version",
+        target: prompt.title,
+      })
+      await refetch()
+      return { error: null }
+    },
+    [user, refetch],
+  )
+
+  return {
+    versions,
+    loading,
+    refetch,
+    saveVersion,
+    restoreVersion,
+    duplicateAsNewPrompt,
+    deleteVersion,
+  }
 }
