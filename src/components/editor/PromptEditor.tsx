@@ -3,7 +3,7 @@ import { Eye } from "lucide-react"
 import type { Extension } from "@codemirror/state"
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/hooks/useAuth"
-import { useComments } from "@/hooks/useComments"
+import { useComments, type CommentWithAuthor } from "@/hooks/useComments"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
@@ -23,10 +23,11 @@ import { ScrollView } from "@/components/editor/ScrollView"
 import { TokenCounter } from "@/components/editor/TokenCounter"
 import { CommentSidebar } from "@/components/comments/CommentSidebar"
 import type { AnchorReport, AnchoredComment } from "@/components/comments/CommentLayer"
-import type { Prompt, PromptSection } from "@/lib/types"
+import type { CommentType, Prompt, PromptSection } from "@/lib/types"
 
 type SaveState = "idle" | "saving" | "saved" | "error"
 type ViewMode = "tabs" | "scroll"
+type ComposeMode = "note" | "suggestion"
 
 const EMPTY_COMMENTS: AnchoredComment[] = []
 
@@ -50,12 +51,14 @@ interface SectionPaneProps {
   preview: boolean
   comments: AnchoredComment[]
   canComment: boolean
-  onCreateNote: (
+  epoch: number
+  onCreateComment: (
     sectionId: string,
     from: number,
     to: number,
     anchoredText: string,
     body: string,
+    type: CommentType,
   ) => Promise<{ error: string | null }>
   onCommentReport: (reports: AnchorReport[], deletedIds: string[]) => void
   onCommentSelect: (id: string) => void
@@ -71,12 +74,13 @@ function SectionPane({
   preview,
   comments,
   canComment,
-  onCreateNote,
+  epoch,
+  onCreateComment,
   onCommentReport,
   onCommentSelect,
 }: SectionPaneProps) {
   const [selection, setSelection] = useState<Selection | null>(null)
-  const [composing, setComposing] = useState(false)
+  const [mode, setMode] = useState<ComposeMode | null>(null)
   const [body, setBody] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -84,44 +88,65 @@ function SectionPane({
   const anchoredText = selection ? value.slice(selection.from, selection.to) : ""
 
   async function submit() {
-    if (!selection || !body.trim()) return
+    if (!selection || !body.trim() || !mode) return
     setBusy(true)
     setError(null)
-    const res = await onCreateNote(section.id, selection.from, selection.to, anchoredText, body.trim())
+    const res = await onCreateComment(section.id, selection.from, selection.to, anchoredText, body.trim(), mode)
     setBusy(false)
     if (res.error) {
       setError(res.error)
       return
     }
+    setMode(null)
     setBody("")
-    setComposing(false)
   }
 
   return (
     <div>
       {canComment && selection && (
         <div className="mb-3 rounded-md border border-brand/40 bg-brand/5 p-2.5">
-          {!composing ? (
+          {mode === null ? (
             <div className="flex items-center justify-between gap-2">
               <span className="truncate font-mono text-[0.7rem] text-muted-foreground">
-                Selected: “{anchoredText.slice(0, 50)}
-                {anchoredText.length > 50 ? "…" : ""}”
+                “{anchoredText.slice(0, 40)}
+                {anchoredText.length > 40 ? "…" : ""}”
               </span>
-              <Button
-                size="sm"
-                onClick={() => setComposing(true)}
-                className="h-7 shrink-0 bg-brand font-medium text-brand-foreground hover:bg-brand/90"
-              >
-                Add note
-              </Button>
+              <div className="flex shrink-0 gap-1.5">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setMode("note")
+                    setBody("")
+                    setError(null)
+                  }}
+                  className="h-7 bg-brand font-medium text-brand-foreground hover:bg-brand/90"
+                >
+                  Add note
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setMode("suggestion")
+                    setBody(anchoredText)
+                    setError(null)
+                  }}
+                  className="h-7"
+                >
+                  Suggest edit
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="space-y-2">
+              <p className="font-mono text-[0.65rem] uppercase tracking-wider text-muted-foreground">
+                {mode === "note" ? "Note" : "Proposed replacement"}
+              </p>
               <Textarea
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
-                placeholder="Leave a note on the selected text…"
-                rows={2}
+                placeholder={mode === "note" ? "Leave a note on the selection…" : "Proposed replacement text…"}
+                rows={mode === "suggestion" ? 3 : 2}
                 autoFocus
                 className="text-sm focus-visible:border-brand focus-visible:ring-brand/25"
               />
@@ -131,7 +156,7 @@ function SectionPane({
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    setComposing(false)
+                    setMode(null)
                     setBody("")
                     setError(null)
                   }}
@@ -144,7 +169,7 @@ function SectionPane({
                   onClick={() => void submit()}
                   className="bg-brand font-medium text-brand-foreground hover:bg-brand/90"
                 >
-                  {busy ? "Adding…" : "Add note"}
+                  {busy ? "Saving…" : mode === "note" ? "Add note" : "Suggest edit"}
                 </Button>
               </div>
             </div>
@@ -154,6 +179,7 @@ function SectionPane({
 
       <div className={cn("grid gap-3", preview ? "lg:grid-cols-2" : "grid-cols-1")}>
         <CodeMirrorEditor
+          key={epoch}
           value={value}
           onChange={onChange}
           editable={editable}
@@ -183,10 +209,20 @@ interface Props {
 
 export function PromptEditor({ prompt, initialSections, canEdit, canComment }: Props) {
   const { user } = useAuth()
-  const { comments, createNote, setStatus, remove, reportAnchors } = useComments(prompt.id)
+  const {
+    comments,
+    repliesByComment,
+    createComment,
+    setStatus,
+    remove,
+    applySuggestion,
+    addReply,
+    reportAnchors,
+  } = useComments(prompt.id)
 
   const [localSections, setLocalSections] = useState<PromptSection[]>([])
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [epochs, setEpochs] = useState<Record<string, number>>({})
   const [activeId, setActiveId] = useState<string>("")
   const [viewMode, setViewMode] = useState<ViewMode>("tabs")
   const [themeName, setThemeName] = useState<string>(DEFAULT_THEME_NAME)
@@ -340,11 +376,21 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
       ? (drafts[activeSection?.id ?? ""] ?? "")
       : visibleSections.map((s) => drafts[s.id] ?? "").join("\n\n")
 
-  const handleCreateNote = useCallback(
-    (sectionId: string, from: number, to: number, anchoredText: string, body: string) =>
-      createNote({ sectionId, anchorStart: from, anchorEnd: to, anchoredText, body }),
-    [createNote],
+  const handleCreateComment = useCallback(
+    (sectionId: string, from: number, to: number, anchoredText: string, body: string, type: CommentType) =>
+      createComment({ sectionId, anchorStart: from, anchorEnd: to, anchoredText, body, type }),
+    [createComment],
   )
+
+  async function handleApply(comment: CommentWithAuthor) {
+    const oldContent = drafts[comment.section_id] ?? ""
+    const res = await applySuggestion(comment, oldContent)
+    if (res.error || res.newContent === undefined) return
+    const newContent = res.newContent
+    setDrafts((d) => ({ ...d, [comment.section_id]: newContent }))
+    setEpochs((e) => ({ ...e, [comment.section_id]: (e[comment.section_id] ?? 0) + 1 }))
+    setActiveCommentId(null)
+  }
 
   function handleFocusComment(sectionId: string, commentId: string) {
     setActiveId(sectionId)
@@ -378,7 +424,8 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
         preview={preview}
         comments={commentsBySection.get(section.id) ?? EMPTY_COMMENTS}
         canComment={canComment}
-        onCreateNote={handleCreateNote}
+        epoch={epochs[section.id] ?? 0}
+        onCreateComment={handleCreateComment}
         onCommentReport={reportAnchors}
         onCommentSelect={setActiveCommentId}
       />
@@ -396,7 +443,7 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
       {!canEdit && (
         <p className="mb-3 font-mono text-xs text-muted-foreground">
           Read-only — you're not the owner of this prompt.
-          {canComment ? " Select text to leave a note." : ""}
+          {canComment ? " Select text to add a note or suggestion." : ""}
         </p>
       )}
 
@@ -471,13 +518,17 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
             <div className="lg:sticky lg:top-4">
               <CommentSidebar
                 comments={comments}
+                repliesByComment={repliesByComment}
                 activeId={activeCommentId}
                 isOwner={canEdit}
+                canReply={canComment}
                 currentUserId={user?.id}
                 onFocus={(c) => handleFocusComment(c.section_id, c.id)}
                 onResolve={(id) => void setStatus(id, "resolved")}
                 onIgnore={(id) => void setStatus(id, "ignored")}
+                onApply={(c) => void handleApply(c)}
                 onDelete={(id) => void remove(id)}
+                onReply={addReply}
               />
             </div>
           </aside>

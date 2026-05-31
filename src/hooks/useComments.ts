@@ -2,26 +2,38 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/hooks/useAuth"
 import type { AnchorReport } from "@/components/comments/CommentLayer"
-import type { Comment, CommentStatus } from "@/lib/types"
+import type { Comment, CommentReply, CommentStatus, CommentType } from "@/lib/types"
 
 export type CommentWithAuthor = Comment & { authorName: string }
+export type ReplyWithAuthor = CommentReply & { authorName: string }
 
-type CreateNoteArgs = {
+type CreateArgs = {
   sectionId: string
   anchorStart: number
   anchorEnd: number
   anchoredText: string
   body: string
+  type: CommentType
 }
 
-/** Active comments live on the canvas; resolved/ignored are removed from view. */
+/** Active comments live on the canvas; resolved/ignored/applied are removed from view. */
 const ACTIVE_STATUSES: CommentStatus[] = ["open", "text_changed"]
+
+/** Map a position through a [start,end)->replacement splice (delta = newLen - (end-start)). */
+function remapPos(pos: number, start: number, end: number, delta: number): number {
+  if (pos <= start) return pos
+  if (pos >= end) return pos + delta
+  return start
+}
 
 export function useComments(promptId: string | undefined) {
   const { user } = useAuth()
   const [comments, setComments] = useState<CommentWithAuthor[]>([])
+  const [repliesByComment, setRepliesByComment] = useState<Map<string, ReplyWithAuthor[]>>(new Map())
   const [loading, setLoading] = useState(true)
 
+  const commentsRef = useRef<CommentWithAuthor[]>([])
+  commentsRef.current = comments
   const pendingDeleted = useRef<Set<string>>(new Set())
   const pendingPos = useRef<Map<string, AnchorReport>>(new Map())
   const flushTimer = useRef<number | undefined>(undefined)
@@ -36,15 +48,27 @@ export function useComments(promptId: string | undefined) {
       .in("status", ACTIVE_STATUSES)
       .order("created_at", { ascending: true })
     const rows = data ?? []
-    const authorIds = [...new Set(rows.map((c) => c.author_id))]
+    const ids = rows.map((c) => c.id)
+
+    const { data: replyRows } = ids.length
+      ? await supabase.from("comment_replies").select("*").in("comment_id", ids).order("created_at")
+      : { data: [] as CommentReply[] }
+    const replies = replyRows ?? []
+
+    const authorIds = [...new Set([...rows.map((c) => c.author_id), ...replies.map((r) => r.author_id)])]
     let names = new Map<string, string>()
     if (authorIds.length) {
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, username")
-        .in("id", authorIds)
+      const { data: profiles } = await supabase.from("profiles").select("id, username").in("id", authorIds)
       names = new Map((profiles ?? []).map((p) => [p.id, p.username]))
     }
+
+    const grouped = new Map<string, ReplyWithAuthor[]>()
+    for (const r of replies) {
+      const list = grouped.get(r.comment_id) ?? []
+      list.push({ ...r, authorName: names.get(r.author_id) ?? "unknown" })
+      grouped.set(r.comment_id, list)
+    }
+    setRepliesByComment(grouped)
     setComments(rows.map((c) => ({ ...c, authorName: names.get(c.author_id) ?? "unknown" })))
     setLoading(false)
   }, [promptId])
@@ -53,8 +77,8 @@ export function useComments(promptId: string | undefined) {
     void refetch()
   }, [refetch])
 
-  const createNote = useCallback(
-    async (args: CreateNoteArgs): Promise<{ error: string | null }> => {
+  const createComment = useCallback(
+    async (args: CreateArgs): Promise<{ error: string | null }> => {
       if (!user || !promptId) return { error: "Not ready." }
       const { data: latest } = await supabase
         .from("prompt_versions")
@@ -70,7 +94,7 @@ export function useComments(promptId: string | undefined) {
         version_id: latest.id,
         section_id: args.sectionId,
         author_id: user.id,
-        comment_type: "note",
+        comment_type: args.type,
         anchor_start: args.anchorStart,
         anchor_end: args.anchorEnd,
         anchored_text: args.anchoredText,
@@ -84,26 +108,86 @@ export function useComments(promptId: string | undefined) {
     [user, promptId, refetch],
   )
 
-  /** owner resolves / ignores → comment leaves the active set. */
   const setStatus = useCallback(async (id: string, status: CommentStatus) => {
+    pendingPos.current.delete(id)
+    pendingDeleted.current.delete(id)
     setComments((prev) => prev.filter((c) => c.id !== id))
     await supabase.from("comments").update({ status }).eq("id", id)
   }, [])
 
   const remove = useCallback(async (id: string) => {
+    pendingPos.current.delete(id)
+    pendingDeleted.current.delete(id)
     setComments((prev) => prev.filter((c) => c.id !== id))
     await supabase.from("comments").delete().eq("id", id)
   }, [])
+
+  /** Owner applies a suggestion: replace its span in the section, mark applied,
+   *  and remap the other comments in that section. Returns the new section content. */
+  const applySuggestion = useCallback(
+    async (comment: Comment, oldContent: string): Promise<{ error: string | null; newContent?: string }> => {
+      const start = comment.anchor_start
+      const end = comment.anchor_end
+      const replacement = comment.body
+      const newContent = oldContent.slice(0, start) + replacement + oldContent.slice(end)
+      const delta = replacement.length - (end - start)
+
+      const { error } = await supabase
+        .from("prompt_sections")
+        .update({ content: newContent })
+        .eq("id", comment.section_id)
+      if (error) return { error: error.message }
+
+      pendingPos.current.delete(comment.id)
+      await supabase.from("comments").update({ status: "applied" }).eq("id", comment.id)
+
+      // Remap the other active comments in the same section through the splice.
+      const others = commentsRef.current.filter(
+        (c) => c.section_id === comment.section_id && c.id !== comment.id,
+      )
+      for (const c of others) {
+        const ns = remapPos(c.anchor_start, start, end, delta)
+        const ne = remapPos(c.anchor_end, start, end, delta)
+        if (ne <= ns) {
+          await supabase.from("comments").delete().eq("id", c.id)
+          continue
+        }
+        const overlapped = c.anchor_start < end && c.anchor_end > start
+        await supabase
+          .from("comments")
+          .update({
+            anchor_start: ns,
+            anchor_end: ne,
+            status: overlapped ? "text_changed" : c.status,
+          })
+          .eq("id", c.id)
+      }
+
+      await refetch()
+      return { error: null, newContent }
+    },
+    [refetch],
+  )
+
+  const addReply = useCallback(
+    async (commentId: string, body: string): Promise<{ error: string | null }> => {
+      if (!user) return { error: "Not signed in." }
+      const { error } = await supabase
+        .from("comment_replies")
+        .insert({ comment_id: commentId, author_id: user.id, body: body.trim() })
+      if (error) return { error: error.message }
+      await refetch()
+      return { error: null }
+    },
+    [user, refetch],
+  )
 
   const flush = useCallback(async () => {
     const deleted = [...pendingDeleted.current]
     pendingDeleted.current.clear()
     const positions = new Map(pendingPos.current)
     pendingPos.current.clear()
-
-    for (const id of deleted) {
-      await supabase.from("comments").delete().eq("id", id)
-    }
+    for (const id of deleted) await supabase.from("comments").delete().eq("id", id)
     for (const [id, report] of positions) {
       await supabase
         .from("comments")
@@ -116,7 +200,6 @@ export function useComments(promptId: string | undefined) {
     }
   }, [])
 
-  /** Called by the editor after each doc change with mapped positions + deletions. */
   const reportAnchors = useCallback(
     (reports: AnchorReport[], deletedIds: string[]) => {
       for (const id of deletedIds) {
@@ -126,7 +209,6 @@ export function useComments(promptId: string | undefined) {
       for (const report of reports) {
         if (!pendingDeleted.current.has(report.id)) pendingPos.current.set(report.id, report)
       }
-      // Optimistic local sync: drop deleted, reflect text_changed flags in the sidebar.
       setComments((prev) =>
         prev
           .filter((c) => !deletedIds.includes(c.id))
@@ -143,5 +225,16 @@ export function useComments(promptId: string | undefined) {
     [flush],
   )
 
-  return { comments, loading, refetch, createNote, setStatus, remove, reportAnchors }
+  return {
+    comments,
+    repliesByComment,
+    loading,
+    refetch,
+    createComment,
+    setStatus,
+    remove,
+    applySuggestion,
+    addReply,
+    reportAnchors,
+  }
 }
