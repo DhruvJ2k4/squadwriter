@@ -11,6 +11,8 @@ export interface ChatMessage {
   username: string
   body: string
   sticker: boolean
+  /** Optional quoted prompt selection (§2.7 "comment on this selection"). */
+  quote?: string
   ts: number
 }
 
@@ -193,14 +195,15 @@ export function useSession(sessionId: string | undefined) {
   )
 
   const sendChat = useCallback(
-    (body: string, sticker = false) => {
+    (body: string, opts?: { sticker?: boolean; quote?: string }) => {
       if (!user || !channelRef.current) return
       const msg: ChatMessage = {
         id: crypto.randomUUID(),
         userId: user.id,
         username: profile?.username ?? "you",
         body,
-        sticker,
+        sticker: opts?.sticker ?? false,
+        quote: opts?.quote,
         ts: Date.now(),
       }
       void channelRef.current.send({ type: "broadcast", event: "chat", payload: msg })

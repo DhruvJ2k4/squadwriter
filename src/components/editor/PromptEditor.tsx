@@ -1,16 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react"
 import { Eye } from "lucide-react"
 import type { Extension } from "@codemirror/state"
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/hooks/useAuth"
 import { useComments, type CommentWithAuthor } from "@/hooks/useComments"
+import { addJsonSection, removeJsonSection } from "@/hooks/usePrompt"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import {
   DEFAULT_THEME_NAME,
   ThemeSelector,
+  getPalette,
   getThemeExtension,
+  type Palette,
 } from "@/components/editor/ThemeSelector"
 import { variableHighlighter } from "@/components/editor/VariableHighlighter"
 import { slashCommands } from "@/components/editor/SlashCommands"
@@ -30,6 +40,7 @@ type ViewMode = "tabs" | "scroll"
 type ComposeMode = "note" | "suggestion"
 
 const EMPTY_COMMENTS: AnchoredComment[] = []
+const COMPOSER_WIDTH = 288 // matches w-72, used to clamp the inline composer within the pane
 
 function prettyJson(content: string): string {
   try {
@@ -37,6 +48,21 @@ function prettyJson(content: string): string {
   } catch {
     return content
   }
+}
+
+/** True on lg+ screens — the editor/preview split is only draggable there; mobile stacks. */
+function useIsWide(query = "(min-width: 1024px)"): boolean {
+  const [wide, setWide] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia(query).matches : true,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia(query)
+    const onChange = () => setWide(mq.matches)
+    mq.addEventListener("change", onChange)
+    setWide(mq.matches)
+    return () => mq.removeEventListener("change", onChange)
+  }, [query])
+  return wide
 }
 
 // ---------------------------------------------------------------------------
@@ -47,8 +73,12 @@ interface SectionPaneProps {
   onChange: (value: string) => void
   editable: boolean
   themeExtension: Extension
+  palette: Palette
   extraExtensions: Extension[]
   preview: boolean
+  splitPct: number
+  onSplitChange: (pct: number) => void
+  isWide: boolean
   comments: AnchoredComment[]
   canComment: boolean
   epoch: number
@@ -70,8 +100,12 @@ function SectionPane({
   onChange,
   editable,
   themeExtension,
+  palette,
   extraExtensions,
   preview,
+  splitPct,
+  onSplitChange,
+  isWide,
   comments,
   canComment,
   epoch,
@@ -84,8 +118,17 @@ function SectionPane({
   const [body, setBody] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const rowRef = useRef<HTMLDivElement>(null)
 
   const anchoredText = selection ? value.slice(selection.from, selection.to) : ""
+  const horizontal = preview && isWide
+
+  function dismiss() {
+    setSelection(null)
+    setMode(null)
+    setBody("")
+    setError(null)
+  }
 
   async function submit() {
     if (!selection || !body.trim() || !mode) return
@@ -97,19 +140,81 @@ function SectionPane({
       setError(res.error)
       return
     }
-    setMode(null)
-    setBody("")
+    dismiss() // close the inline composer once the comment is posted
   }
 
+  // §2.1 — drag the divider to resize the editor vs. preview width (session-only state).
+  function startResize(e: ReactPointerEvent<HTMLDivElement>) {
+    e.preventDefault()
+    const container = rowRef.current
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    const onMove = (ev: PointerEvent) => {
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100
+      onSplitChange(Math.min(80, Math.max(20, pct)))
+    }
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", onUp)
+    }
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", onUp)
+  }
+
+  // §2.5 — anchor the composer near the selection, clamped inside the pane.
+  const paneWidth = rowRef.current?.clientWidth ?? 0
+  const composerLeft = selection?.coords
+    ? Math.max(0, Math.min(selection.coords.left, Math.max(0, paneWidth - COMPOSER_WIDTH - 8)))
+    : 0
+  const composerTop = selection?.coords ? selection.coords.bottom + 8 : 8
+
   return (
-    <div>
+    <div ref={rowRef} className={cn("relative flex min-w-0 gap-3", horizontal ? "flex-row" : "flex-col")}>
+      <div className="min-w-0" style={horizontal ? { width: `${splitPct}%` } : undefined}>
+        <CodeMirrorEditor
+          key={epoch}
+          value={value}
+          onChange={onChange}
+          editable={editable}
+          language="markdown"
+          themeExtension={themeExtension}
+          extraExtensions={extraExtensions}
+          comments={comments}
+          onCommentReport={onCommentReport}
+          onCommentSelect={onCommentSelect}
+          onSelectionChange={setSelection}
+          className="h-full overflow-hidden rounded-md border border-border/60"
+        />
+      </div>
+
+      {horizontal && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          onPointerDown={startResize}
+          title="Drag to resize"
+          className="group relative w-2 shrink-0 cursor-col-resize"
+        >
+          <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/70 transition-colors group-hover:bg-brand" />
+        </div>
+      )}
+
+      {preview && (
+        <div className={cn("min-w-0", horizontal && "flex-1")}>
+          <MarkdownPreview source={value} palette={palette} className="h-full" />
+        </div>
+      )}
+
       {canComment && selection && (
-        <div className="mb-3 rounded-md border border-brand/40 bg-brand/5 p-2.5">
+        <div
+          className="absolute z-20 w-72 rounded-md border border-brand/40 bg-popover p-2.5 shadow-md"
+          style={{ top: composerTop, left: composerLeft }}
+        >
           {mode === null ? (
             <div className="flex items-center justify-between gap-2">
               <span className="truncate font-mono text-[0.7rem] text-muted-foreground">
-                “{anchoredText.slice(0, 40)}
-                {anchoredText.length > 40 ? "…" : ""}”
+                “{anchoredText.slice(0, 32)}
+                {anchoredText.length > 32 ? "…" : ""}”
               </span>
               <div className="flex shrink-0 gap-1.5">
                 <Button
@@ -152,15 +257,7 @@ function SectionPane({
               />
               {error && <p className="font-mono text-xs text-destructive">{error}</p>}
               <div className="flex justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setMode(null)
-                    setBody("")
-                    setError(null)
-                  }}
-                >
+                <Button variant="ghost" size="sm" onClick={dismiss}>
                   Cancel
                 </Button>
                 <Button
@@ -176,24 +273,6 @@ function SectionPane({
           )}
         </div>
       )}
-
-      <div className={cn("grid gap-3", preview ? "lg:grid-cols-2" : "grid-cols-1")}>
-        <CodeMirrorEditor
-          key={epoch}
-          value={value}
-          onChange={onChange}
-          editable={editable}
-          language="markdown"
-          themeExtension={themeExtension}
-          extraExtensions={extraExtensions}
-          comments={comments}
-          onCommentReport={onCommentReport}
-          onCommentSelect={onCommentSelect}
-          onSelectionChange={setSelection}
-          className="overflow-hidden rounded-md border border-border/60"
-        />
-        {preview && <MarkdownPreview source={value} />}
-      </div>
     </div>
   )
 }
@@ -227,8 +306,10 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
   const [viewMode, setViewMode] = useState<ViewMode>("tabs")
   const [themeName, setThemeName] = useState<string>(DEFAULT_THEME_NAME)
   const [preview, setPreview] = useState(false)
+  const [splitPct, setSplitPct] = useState(50)
   const [saveState, setSaveState] = useState<SaveState>("idle")
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null)
+  const isWide = useIsWide()
 
   const seededId = useRef<string | null>(null)
   const timersRef = useRef<Record<string, number>>({})
@@ -252,6 +333,7 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
   }, [prompt.id, initialSections])
 
   const themeExtension = useMemo(() => getThemeExtension(themeName), [themeName])
+  const palette = useMemo(() => getPalette(themeName), [themeName])
   const varExtension = useMemo(() => variableHighlighter(), [])
 
   const updateContent = useCallback(
@@ -330,6 +412,36 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
     setLocalSections((prev) => prev.map((s) => (s.id === stage.id ? { ...s, title } : s)))
   }, [])
 
+  // §2.3 — optional RAG JSON section toggle for Monolithic / Prompt-Chaining prompts.
+  const addJsonTab = useCallback(async () => {
+    const res = await addJsonSection(prompt.id)
+    if (res.error || !res.section) return
+    const created = res.section
+    setLocalSections((prev) => [...prev, created])
+    setDrafts((d) => ({ ...d, [created.id]: prettyJson(created.content) }))
+    setActiveId(created.id)
+  }, [prompt.id])
+
+  const removeJsonTab = useCallback(async () => {
+    const json = localSectionsRef.current.find((s) => s.section_type === "rag_json")
+    if (!json) return
+    const content = (drafts[json.id] ?? "").trim()
+    if (content && content !== "{}") {
+      if (!window.confirm("Remove the RAG JSON section? Its content will be permanently deleted.")) return
+    }
+    const res = await removeJsonSection(prompt.id)
+    if (res.error) return
+    setLocalSections((prev) => prev.filter((s) => s.section_type !== "rag_json"))
+    setDrafts((d) => {
+      const next = { ...d }
+      delete next[json.id]
+      return next
+    })
+    setActiveId((cur) =>
+      cur === json.id ? (localSectionsRef.current.find((s) => s.section_type === "main")?.id ?? cur) : cur,
+    )
+  }, [prompt.id, drafts])
+
   const slashExtension = useMemo(
     () =>
       slashCommands([
@@ -364,6 +476,7 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
     () => localSections.filter((s) => s.section_type === "stage").sort((a, b) => a.position - b.position),
     [localSections],
   )
+  const hasJson = useMemo(() => localSections.some((s) => s.section_type === "rag_json"), [localSections])
   const commentsBySection = useMemo(() => {
     const map = new Map<string, AnchoredComment[]>()
     for (const c of comments) {
@@ -375,6 +488,8 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
   }, [comments])
 
   const isChaining = prompt.prompt_type === "prompt_chaining"
+  const canToggleJson =
+    canEdit && (prompt.prompt_type === "monolithic" || prompt.prompt_type === "prompt_chaining")
   const activeSection = visibleSections.find((s) => s.id === activeId) ?? visibleSections[0]
   const counterText =
     viewMode === "tabs"
@@ -425,8 +540,12 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
         onChange={(v) => updateContent(section.id, v)}
         editable={canEdit}
         themeExtension={themeExtension}
+        palette={palette}
         extraExtensions={canEdit ? editExtras : readonlyExtras}
         preview={preview}
+        splitPct={splitPct}
+        onSplitChange={setSplitPct}
+        isWide={isWide}
         comments={commentsBySection.get(section.id) ?? EMPTY_COMMENTS}
         canComment={canComment}
         epoch={epochs[section.id] ?? 0}
@@ -476,6 +595,16 @@ export function PromptEditor({ prompt, initialSections, canEdit, canComment }: P
               onArchiveToggle={(s) => void archiveStage(s)}
               onDelete={(s) => void deleteStage(s)}
             />
+          )}
+          {canToggleJson && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void (hasJson ? removeJsonTab() : addJsonTab())}
+              className="h-8 font-mono text-xs"
+            >
+              {hasJson ? "Remove RAG JSON" : "Add RAG JSON"}
+            </Button>
           )}
         </div>
 

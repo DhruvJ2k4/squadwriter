@@ -6,7 +6,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils"
 import type { ChatMessage } from "@/hooks/useSession"
 
-const STICKERS = ["🎉", "🔥", "👍", "✅", "❤️", "😂", "🙌", "🚀"]
+// §2.8 — a fixed, built-in sticker set (see the note in the changeset report: admin-uploaded
+// stickers would need a storage bucket + a new table, which this phase doesn't provision).
+const STICKERS = ["🎉", "🔥", "👍", "✅", "❤️", "😂", "🙌", "🚀", "💡", "👀", "🤝", "🧠", "⚡", "💯", "🐛", "🎯"]
 
 // Lazy: emoji-mart (picker + its large data set) loads only when opened.
 const LazyEmojiPicker = lazy(() => import("@emoji-mart/react"))
@@ -40,7 +42,7 @@ function EmojiPicker({ onSelect }: { onSelect: (native: string) => void }) {
 interface Props {
   messages: ChatMessage[]
   currentUserId: string | undefined
-  onSend: (body: string, sticker?: boolean) => void
+  onSend: (body: string, opts?: { sticker?: boolean; quote?: string }) => void
 }
 
 export function ChatPanel({ messages, currentUserId, onSend }: Props) {
@@ -54,7 +56,7 @@ export function ChatPanel({ messages, currentUserId, onSend }: Props) {
   function send() {
     const trimmed = text.trim()
     if (!trimmed) return
-    onSend(trimmed, false)
+    onSend(trimmed)
     setText("")
   }
 
@@ -73,14 +75,27 @@ export function ChatPanel({ messages, currentUserId, onSend }: Props) {
               {m.sticker ? (
                 <span className="text-3xl leading-none">{m.body}</span>
               ) : (
-                <span
-                  className={cn(
-                    "max-w-[14rem] break-words rounded-lg px-2.5 py-1.5 text-sm",
-                    mine ? "bg-brand text-brand-foreground" : "bg-secondary",
+                <div className={cn("flex max-w-[14rem] flex-col gap-1", mine ? "items-end" : "items-start")}>
+                  {m.quote && (
+                    <span className="w-full break-words rounded-md border-l-2 border-brand/60 bg-background/50 px-2 py-1 text-[0.7rem] italic text-muted-foreground">
+                      “{m.quote.length > 140 ? `${m.quote.slice(0, 140)}…` : m.quote}”
+                    </span>
                   )}
-                >
-                  {m.body}
-                </span>
+                  {m.body ? (
+                    <span
+                      className={cn(
+                        "break-words rounded-lg px-2.5 py-1.5 text-sm",
+                        mine ? "bg-brand text-brand-foreground" : "bg-secondary",
+                      )}
+                    >
+                      {m.body}
+                    </span>
+                  ) : (
+                    m.quote && (
+                      <span className="font-mono text-[0.6rem] text-muted-foreground">referenced a selection</span>
+                    )
+                  )}
+                </div>
               )}
             </div>
           )
@@ -92,7 +107,7 @@ export function ChatPanel({ messages, currentUserId, onSend }: Props) {
           {STICKERS.map((s) => (
             <button
               key={s}
-              onClick={() => onSend(s, true)}
+              onClick={() => onSend(s, { sticker: true })}
               className="rounded px-1 text-lg transition-opacity hover:opacity-70"
               aria-label={`Send ${s} sticker`}
             >

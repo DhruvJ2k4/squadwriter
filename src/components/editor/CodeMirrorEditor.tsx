@@ -49,6 +49,8 @@ function editableExtension(editable: boolean): Extension {
 export interface Selection {
   from: number
   to: number
+  /** Pixel position of the selection's end, relative to the editor's host element. */
+  coords: { left: number; top: number; bottom: number } | null
 }
 
 interface Props {
@@ -107,12 +109,6 @@ export function CodeMirrorEditor({
               onReport: (reports, deleted) => onReportRef.current?.(reports, deleted),
               onSelect: (id) => onSelectRef.current?.(id),
             }),
-            EditorView.updateListener.of((update) => {
-              if (update.selectionSet || update.docChanged) {
-                const sel = update.state.selection.main
-                onSelChangeRef.current?.(sel.empty ? null : { from: sel.from, to: sel.to })
-              }
-            }),
           ]
         : []
 
@@ -127,6 +123,26 @@ export function CodeMirrorEditor({
         ...commentExtensions,
         EditorView.updateListener.of((update) => {
           if (update.docChanged) onChangeRef.current?.(update.state.doc.toString())
+        }),
+        // Report selection + its pixel position (inline comment composer §2.5, select-to-chat §2.7).
+        EditorView.updateListener.of((update) => {
+          const cb = onSelChangeRef.current
+          if (!cb) return
+          if (!update.selectionSet && !update.docChanged && !update.geometryChanged) return
+          const sel = update.state.selection.main
+          if (sel.empty) {
+            cb(null)
+            return
+          }
+          const hostRect = update.view.dom.getBoundingClientRect()
+          const c = update.view.coordsAtPos(sel.to)
+          cb({
+            from: sel.from,
+            to: sel.to,
+            coords: c
+              ? { left: c.left - hostRect.left, top: c.top - hostRect.top, bottom: c.bottom - hostRect.top }
+              : null,
+          })
         }),
       ],
     })

@@ -1,4 +1,4 @@
-import { diffLines, type Change } from "diff"
+import { diffLines, diffWordsWithSpace, type Change } from "diff"
 import type { PromptSection } from "@/lib/types"
 
 export type DiffLine = { type: "add" | "del" | "same"; text: string }
@@ -29,6 +29,76 @@ export function lineDiff(before: string, after: string): DiffLine[] {
     for (const text of lines) out.push({ type, text })
   }
   return out
+}
+
+// --- side-by-side diff (CHANGESET §2.6) ------------------------------------
+
+export type DiffSegment = { text: string; changed: boolean }
+export type SideCell = { type: "same" | "del" | "add" | "empty"; segments: DiffSegment[] }
+export type DiffRow = { left: SideCell; right: SideCell }
+
+const EMPTY_CELL: SideCell = { type: "empty", segments: [] }
+
+/** Word-level segments for a changed line pair (whitespace preserved). */
+function wordSegments(a: string, b: string): { left: DiffSegment[]; right: DiffSegment[] } {
+  const left: DiffSegment[] = []
+  const right: DiffSegment[] = []
+  for (const part of diffWordsWithSpace(a, b)) {
+    if (part.added) right.push({ text: part.value, changed: true })
+    else if (part.removed) left.push({ text: part.value, changed: true })
+    else {
+      left.push({ text: part.value, changed: false })
+      right.push({ text: part.value, changed: false })
+    }
+  }
+  return { left, right }
+}
+
+/**
+ * Aligned side-by-side diff: removed lines pair with the following added lines
+ * (with word-level highlighting on the changed pair); surplus lines on one side
+ * leave the opposite cell empty. Powers the two-column red/green VersionDiff.
+ */
+export function sideBySideDiff(before: string, after: string): DiffRow[] {
+  const changes = diffLines(before, after)
+  const rows: DiffRow[] = []
+  for (let i = 0; i < changes.length; i++) {
+    const change = changes[i]
+    if (!change.added && !change.removed) {
+      for (const text of toLines(change.value)) {
+        const seg = [{ text, changed: false }]
+        rows.push({ left: { type: "same", segments: seg }, right: { type: "same", segments: seg } })
+      }
+      continue
+    }
+    if (change.removed) {
+      const dels = toLines(change.value)
+      let adds: string[] = []
+      if (i + 1 < changes.length && changes[i + 1].added) {
+        adds = toLines(changes[i + 1].value)
+        i++
+      }
+      const n = Math.max(dels.length, adds.length)
+      for (let r = 0; r < n; r++) {
+        const d = dels[r]
+        const a = adds[r]
+        if (d !== undefined && a !== undefined) {
+          const seg = wordSegments(d, a)
+          rows.push({ left: { type: "del", segments: seg.left }, right: { type: "add", segments: seg.right } })
+        } else if (d !== undefined) {
+          rows.push({ left: { type: "del", segments: [{ text: d, changed: true }] }, right: EMPTY_CELL })
+        } else {
+          rows.push({ left: EMPTY_CELL, right: { type: "add", segments: [{ text: a, changed: true }] } })
+        }
+      }
+    } else {
+      // lone addition (no preceding removal)
+      for (const text of toLines(change.value)) {
+        rows.push({ left: EMPTY_CELL, right: { type: "add", segments: [{ text, changed: true }] } })
+      }
+    }
+  }
+  return rows
 }
 
 // --- line-level merge (Stage 12) -------------------------------------------

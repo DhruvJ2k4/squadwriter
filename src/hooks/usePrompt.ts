@@ -4,7 +4,13 @@ import { useAuth } from "@/hooks/useAuth"
 import { logActivity } from "@/hooks/useActivity"
 import type { Prompt, PromptKind, PromptSection, PromptType, SectionType } from "@/lib/types"
 
-export type NewPromptInput = { title: string; kind: PromptKind; type: PromptType }
+export type NewPromptInput = {
+  title: string
+  kind: PromptKind
+  type: PromptType
+  /** Monolithic/Prompt-Chaining only: opt into a single RAG JSON section (§2.3). */
+  hasJsonTab?: boolean
+}
 type MutationResult = { error: string | null; id?: string }
 
 type SectionTemplate = {
@@ -14,29 +20,41 @@ type SectionTemplate = {
   position: number
 }
 
-/** Section composition per §3: Monolithic=main · RAG=main+rag_json · Chaining=main+stage · Entity=main. */
-function sectionTemplates(type: PromptType): SectionTemplate[] {
+/**
+ * Section composition (§2.3): Monolithic=main · Chaining=main+stage · Entity=main.
+ * Monolithic & Chaining optionally append ONE rag_json section. The legacy `rag_enabled`
+ * type is no longer creatable from the UI but is still handled for any unmigrated rows.
+ */
+function sectionTemplates(type: PromptType, hasJsonTab: boolean): SectionTemplate[] {
+  const out: SectionTemplate[] = []
   switch (type) {
     case "monolithic":
-      return [{ section_type: "main", title: "Prompt", content: "", position: 0 }]
+      out.push({ section_type: "main", title: "Prompt", content: "", position: 0 })
+      break
+    case "prompt_chaining":
+      out.push({ section_type: "main", title: "Prompt", content: "", position: 0 })
+      out.push({ section_type: "stage", title: "Stage 1", content: "", position: 1 })
+      break
+    case "entity":
+      out.push({ section_type: "main", title: "Content", content: "", position: 0 })
+      break
     case "rag_enabled":
       return [
         { section_type: "main", title: "Prompt", content: "", position: 0 },
         { section_type: "rag_json", title: "RAG JSON", content: "{}", position: 1 },
       ]
-    case "prompt_chaining":
-      return [
-        { section_type: "main", title: "Prompt", content: "", position: 0 },
-        { section_type: "stage", title: "Stage 1", content: "", position: 1 },
-      ]
-    case "entity":
-      return [{ section_type: "main", title: "Content", content: "", position: 0 }]
   }
+  if (hasJsonTab && (type === "monolithic" || type === "prompt_chaining")) {
+    out.push({ section_type: "rag_json", title: "RAG JSON", content: "{}", position: out.length })
+  }
+  return out
 }
 
-/** has_json_tab is derived: only RAG-enabled prompts carry a JSON tab (and it's false for entity). */
-export function deriveHasJsonTab(type: PromptType): boolean {
-  return type === "rag_enabled"
+/** Entity never has a JSON tab; legacy rag_enabled always does; otherwise it is opt-in (§2.3). */
+export function deriveHasJsonTab(type: PromptType, hasJsonTab?: boolean): boolean {
+  if (type === "entity") return false
+  if (type === "rag_enabled") return true
+  return !!hasJsonTab
 }
 
 export async function createPromptWithSections(
@@ -44,6 +62,7 @@ export async function createPromptWithSections(
   projectId: string,
   input: NewPromptInput,
 ): Promise<MutationResult> {
+  const hasJsonTab = deriveHasJsonTab(input.type, input.hasJsonTab)
   const { data: prompt, error } = await supabase
     .from("prompts")
     .insert({
@@ -52,13 +71,13 @@ export async function createPromptWithSections(
       title: input.title.trim(),
       prompt_kind: input.kind,
       prompt_type: input.type,
-      has_json_tab: deriveHasJsonTab(input.type),
+      has_json_tab: hasJsonTab,
     })
     .select()
     .single()
   if (error || !prompt) return { error: error?.message ?? "Could not create prompt." }
 
-  const sections = sectionTemplates(input.type).map((s) => ({ ...s, prompt_id: prompt.id }))
+  const sections = sectionTemplates(input.type, hasJsonTab).map((s) => ({ ...s, prompt_id: prompt.id }))
   const { error: sectionError } = await supabase.from("prompt_sections").insert(sections)
   if (sectionError) return { error: sectionError.message }
 
@@ -161,6 +180,37 @@ export async function renamePromptRow(
   const { error } = await supabase.from("prompts").update({ title: clean }).eq("id", promptId)
   if (error) return { error: error.message }
   await logActivity({ projectId, actorId, verb: "renamed prompt", target: clean })
+  return { error: null }
+}
+
+/** §2.3 toggle ON: add the single RAG JSON section to a monolithic/PC prompt + set the flag. */
+export async function addJsonSection(
+  promptId: string,
+): Promise<{ error: string | null; section?: PromptSection }> {
+  const { data: existing } = await supabase
+    .from("prompt_sections")
+    .select("position")
+    .eq("prompt_id", promptId)
+  const position = (existing ?? []).reduce((max, s) => Math.max(max, s.position), -1) + 1
+  const { data, error } = await supabase
+    .from("prompt_sections")
+    .insert({ prompt_id: promptId, section_type: "rag_json", title: "RAG JSON", content: "{}", position })
+    .select()
+    .single()
+  if (error || !data) return { error: error?.message ?? "Could not add the JSON section." }
+  await supabase.from("prompts").update({ has_json_tab: true }).eq("id", promptId)
+  return { error: null, section: data }
+}
+
+/** §2.3 toggle OFF: remove the RAG JSON section(s) from a prompt + clear the flag. */
+export async function removeJsonSection(promptId: string): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from("prompt_sections")
+    .delete()
+    .eq("prompt_id", promptId)
+    .eq("section_type", "rag_json")
+  if (error) return { error: error.message }
+  await supabase.from("prompts").update({ has_json_tab: false }).eq("id", promptId)
   return { error: null }
 }
 

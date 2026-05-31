@@ -77,6 +77,41 @@ export function useComments(promptId: string | undefined) {
     void refetch()
   }, [refetch])
 
+  // §2.4 — live updates: reflect other users' comments/replies without a reload.
+  // RLS still gates which change events we receive; refetch is debounced so a burst
+  // of edits (or the echo of our own writes) collapses into one reload.
+  useEffect(() => {
+    if (!promptId) return
+    let timer: number | undefined
+    const scheduleRefetch = () => {
+      if (timer) window.clearTimeout(timer)
+      timer = window.setTimeout(() => void refetch(), 250)
+    }
+    const channel = supabase
+      .channel(`prompt:${promptId}:comments`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "comments", filter: `prompt_id=eq.${promptId}` },
+        scheduleRefetch,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "comment_replies" },
+        (payload) => {
+          // Replies carry no prompt_id; only refetch when the reply is on one of our comments.
+          const row = (payload.new ?? payload.old) as { comment_id?: string } | null
+          if (row?.comment_id && commentsRef.current.some((c) => c.id === row.comment_id)) {
+            scheduleRefetch()
+          }
+        },
+      )
+      .subscribe()
+    return () => {
+      if (timer) window.clearTimeout(timer)
+      void supabase.removeChannel(channel)
+    }
+  }, [promptId, refetch])
+
   const createComment = useCallback(
     async (args: CreateArgs): Promise<{ error: string | null }> => {
       if (!user || !promptId) return { error: "Not ready." }

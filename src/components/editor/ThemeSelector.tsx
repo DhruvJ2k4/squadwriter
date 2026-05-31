@@ -10,7 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-type Palette = {
+export type Palette = {
   name: string
   dark: boolean
   bg: string
@@ -171,6 +171,11 @@ export const DEFAULT_THEME_NAME = EDITOR_THEMES[0].name
 
 export function getThemeExtension(name: string): Extension {
   return (EDITOR_THEMES.find((th) => th.name === name) ?? EDITOR_THEMES[0]).extension
+}
+
+/** The raw palette for a theme — used to style the Markdown preview to match the editor. */
+export function getPalette(name: string): Palette {
+  return PALETTES.find((p) => p.name === name) ?? PALETTES[0]
 }
 
 export function ThemeSelector({

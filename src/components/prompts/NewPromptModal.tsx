@@ -29,7 +29,6 @@ const KINDS: { value: PromptKind; label: string; hint: string }[] = [
 const TYPES: { value: PromptType; label: string; hint: string }[] = [
   { value: "monolithic", label: "Monolithic", hint: "One single prompt section." },
   { value: "prompt_chaining", label: "Prompt chaining", hint: "A base prompt plus ordered stages." },
-  { value: "rag_enabled", label: "RAG-enabled", hint: "A prompt with a JSON context tab." },
 ]
 
 const labelClass = "font-mono text-[0.7rem] font-medium uppercase tracking-[0.18em] text-muted-foreground"
@@ -64,6 +63,7 @@ function OptionCard({
 export function NewPromptModal({ open, onOpenChange, onSubmit, onCreated }: Props) {
   const [kind, setKind] = useState<PromptKind>("conversation")
   const [type, setType] = useState<PromptType>("monolithic")
+  const [addJson, setAddJson] = useState(false)
   const [title, setTitle] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -72,6 +72,7 @@ export function NewPromptModal({ open, onOpenChange, onSubmit, onCreated }: Prop
     if (open) {
       setKind("conversation")
       setType("monolithic")
+      setAddJson(false)
       setTitle("")
       setError(null)
     }
@@ -86,7 +87,12 @@ export function NewPromptModal({ open, onOpenChange, onSubmit, onCreated }: Prop
     const resolvedType: PromptType = kind === "entity" ? "entity" : type
     setBusy(true)
     setError(null)
-    const res = await onSubmit({ title, kind, type: resolvedType })
+    const res = await onSubmit({
+      title,
+      kind,
+      type: resolvedType,
+      hasJsonTab: kind === "conversation" ? addJson : false,
+    })
     setBusy(false)
     if (res.error) {
       setError(res.error)
@@ -125,7 +131,7 @@ export function NewPromptModal({ open, onOpenChange, onSubmit, onCreated }: Prop
           {kind === "conversation" && (
             <div className="space-y-2">
               <Label className={labelClass}>Type</Label>
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2">
                 {TYPES.map((t) => (
                   <OptionCard
                     key={t.value}
@@ -136,6 +142,21 @@ export function NewPromptModal({ open, onOpenChange, onSubmit, onCreated }: Prop
                   />
                 ))}
               </div>
+              <label className="mt-1 flex cursor-pointer items-start gap-2.5 rounded-lg border border-border/70 p-3 transition-[transform,opacity] hover:border-border">
+                <input
+                  type="checkbox"
+                  checked={addJson}
+                  onChange={(e) => setAddJson(e.target.checked)}
+                  className="mt-0.5 size-4 accent-brand"
+                />
+                <span>
+                  <span className="text-sm font-medium">Add RAG JSON</span>
+                  <span className="mt-1 block font-mono text-[0.7rem] leading-snug text-muted-foreground">
+                    Adds one JSON context section (with pretty-format). You can also toggle this later in
+                    the editor.
+                  </span>
+                </span>
+              </label>
             </div>
           )}
 

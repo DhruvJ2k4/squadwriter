@@ -147,6 +147,16 @@
   border-bottom: 2px dashed var(--destructive);
 }
 
+/* Live Session real-time diff highlights (§2.7) — additions vs. the other working copy. */
+.cm-live-add {
+  background-color: color-mix(in oklab, #22c55e 24%, transparent);
+  border-radius: 2px;
+}
+.cm-live-del {
+  background-color: color-mix(in oklab, var(--destructive) 24%, transparent);
+  border-radius: 2px;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
