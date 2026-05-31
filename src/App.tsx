@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "@/hooks/useAuth"
 import { Login } from "@/pages/Login"
 import { Dashboard } from "@/pages/Dashboard"
 import { ProjectPage } from "@/pages/ProjectPage"
+import { PromptPage } from "@/pages/PromptPage"
 
 function Splash() {
   return (
@@ -39,6 +40,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<Dashboard />} />
       <Route path="/projects/:id" element={<ProjectPage />} />
+      <Route path="/prompts/:promptId" element={<PromptPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
