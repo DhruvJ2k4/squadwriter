@@ -1,7 +1,7 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { motion } from "framer-motion"
-import { ArrowLeft, Copy, GitFork } from "lucide-react"
+import { ArrowLeft, Copy, GitFork, History, Save } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
 import {
   deletePromptRow,
@@ -9,8 +9,10 @@ import {
   setPromptArchivedRow,
   usePrompt,
 } from "@/hooks/usePrompt"
+import { useVersions } from "@/hooks/useVersions"
 import { ForkModal } from "@/components/prompts/ForkModal"
 import { PromptEditor } from "@/components/editor/PromptEditor"
+import { VersionHistory } from "@/components/prompts/VersionHistory"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,8 +23,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import type { PromptType } from "@/lib/types"
 
 const TYPE_LABEL: Record<PromptType, string> = {
@@ -37,10 +49,47 @@ export function PromptPage() {
   const { user, profile, signOut } = useAuth()
   const navigate = useNavigate()
   const { prompt, sections, loading, refetch } = usePrompt(promptId)
+  const { saveVersion } = useVersions(promptId)
+
   const [forkOpen, setForkOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [saveOpen, setSaveOpen] = useState(false)
+  const [label, setLabel] = useState("")
+  const [saveBusy, setSaveBusy] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [stale, setStale] = useState(false)
+  const [editorKey, setEditorKey] = useState(0)
+
+  // version_counter captured when the prompt was opened (optimistic-lock baseline).
+  const openCounterRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (prompt && openCounterRef.current === null) openCounterRef.current = prompt.version_counter
+  }, [prompt])
 
   const isOwner = !!prompt && prompt.owner_id === user?.id
+
+  async function handleSave(force: boolean) {
+    if (!prompt) return
+    setSaveBusy(true)
+    setSaveError(null)
+    const expected = openCounterRef.current ?? prompt.version_counter
+    const res = await saveVersion({ label, expectedCounter: expected, force })
+    setSaveBusy(false)
+    if (res.stale) {
+      setStale(true)
+      return
+    }
+    if (res.error) {
+      setSaveError(res.error)
+      return
+    }
+    openCounterRef.current = res.newCounter ?? expected + 1
+    setSaveOpen(false)
+    setLabel("")
+    setStale(false)
+    await refetch()
+  }
 
   if (loading && !prompt) {
     return (
@@ -130,38 +179,52 @@ export function PromptPage() {
             </div>
           </div>
 
-          {isOwner && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => void handleDuplicate()}>
-                <Copy className="mr-1.5 size-3.5" />
-                Duplicate
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setForkOpen(true)}>
-                <GitFork className="mr-1.5 size-3.5" />
-                Fork
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void handleArchive()}
-                className="font-mono text-xs text-muted-foreground hover:text-foreground"
-              >
-                {prompt.archived ? "Unarchive" : "Archive"}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setDeleteOpen(true)}
-                className="font-mono text-xs text-muted-foreground hover:text-destructive"
-              >
-                Delete
-              </Button>
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
+              <History className="mr-1.5 size-3.5" />
+              History
+            </Button>
+            {isOwner && (
+              <>
+                <Button
+                  size="sm"
+                  onClick={() => setSaveOpen(true)}
+                  className="bg-brand font-medium text-brand-foreground hover:bg-brand/90"
+                >
+                  <Save className="mr-1.5 size-3.5" />
+                  Save version
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => void handleDuplicate()}>
+                  <Copy className="mr-1.5 size-3.5" />
+                  Duplicate
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setForkOpen(true)}>
+                  <GitFork className="mr-1.5 size-3.5" />
+                  Fork
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void handleArchive()}
+                  className="font-mono text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {prompt.archived ? "Unarchive" : "Archive"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setDeleteOpen(true)}
+                  className="font-mono text-xs text-muted-foreground hover:text-destructive"
+                >
+                  Delete
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         <div className="mt-8">
-          <PromptEditor prompt={prompt} initialSections={sections} canEdit={isOwner} />
+          <PromptEditor key={editorKey} prompt={prompt} initialSections={sections} canEdit={isOwner} />
         </div>
       </motion.main>
 
@@ -174,6 +237,78 @@ export function PromptPage() {
           onForked={(newId) => navigate(`/prompts/${newId}`)}
         />
       )}
+
+      <VersionHistory
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        prompt={prompt}
+        isOwner={isOwner}
+        onRestored={async () => {
+          await refetch()
+          setEditorKey((k) => k + 1)
+        }}
+        onDuplicated={(newId) => navigate(`/prompts/${newId}`)}
+      />
+
+      <Dialog
+        open={saveOpen}
+        onOpenChange={(o) => {
+          setSaveOpen(o)
+          if (!o) {
+            setStale(false)
+            setSaveError(null)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">Save version</DialogTitle>
+            <DialogDescription className="font-mono text-xs">
+              Snapshot all sections as a restorable version.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="version-label" className="font-mono text-[0.7rem] uppercase tracking-[0.18em] text-muted-foreground">
+              Label (optional)
+            </Label>
+            <Input
+              id="version-label"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. Tightened the system prompt"
+              className="focus-visible:border-brand focus-visible:ring-brand/25"
+            />
+          </div>
+          {stale && (
+            <p className="font-mono text-xs text-amber-400">
+              This prompt was saved by someone else since you opened it. Save anyway to append your version.
+            </p>
+          )}
+          {saveError && <p className="font-mono text-xs text-destructive">{saveError}</p>}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setSaveOpen(false)}>
+              Cancel
+            </Button>
+            {stale ? (
+              <Button
+                onClick={() => void handleSave(true)}
+                disabled={saveBusy}
+                className="bg-amber-500 font-medium text-black hover:bg-amber-500/90"
+              >
+                {saveBusy ? "Saving…" : "Save anyway"}
+              </Button>
+            ) : (
+              <Button
+                onClick={() => void handleSave(false)}
+                disabled={saveBusy}
+                className="bg-brand font-medium text-brand-foreground hover:bg-brand/90"
+              >
+                {saveBusy ? "Saving…" : "Save version"}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
