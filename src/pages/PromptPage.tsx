@@ -10,6 +10,7 @@ import {
   usePrompt,
 } from "@/hooks/usePrompt"
 import { useVersions } from "@/hooks/useVersions"
+import { supabase } from "@/lib/supabase"
 import { ForkModal } from "@/components/prompts/ForkModal"
 import { PromptEditor } from "@/components/editor/PromptEditor"
 import { VersionHistory } from "@/components/prompts/VersionHistory"
@@ -60,12 +61,37 @@ export function PromptPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
   const [editorKey, setEditorKey] = useState(0)
+  const [canComment, setCanComment] = useState(false)
 
   // version_counter captured when the prompt was opened (optimistic-lock baseline).
   const openCounterRef = useRef<number | null>(null)
   useEffect(() => {
     if (prompt && openCounterRef.current === null) openCounterRef.current = prompt.version_counter
   }, [prompt])
+
+  // owner / editor / checker may leave comments.
+  useEffect(() => {
+    if (!prompt || !user) {
+      setCanComment(false)
+      return
+    }
+    let active = true
+    void supabase
+      .from("project_members")
+      .select("role")
+      .eq("project_id", prompt.project_id)
+      .eq("user_id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!active) return
+        setCanComment(
+          !!data && (data.role === "owner" || data.role === "editor" || data.role === "checker"),
+        )
+      })
+    return () => {
+      active = false
+    }
+  }, [prompt, user])
 
   const isOwner = !!prompt && prompt.owner_id === user?.id
 
@@ -152,7 +178,7 @@ export function PromptPage() {
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, ease: "easeOut" }}
-        className="mx-auto max-w-3xl px-6 py-10"
+        className="mx-auto max-w-6xl px-6 py-10"
       >
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -224,7 +250,13 @@ export function PromptPage() {
         </div>
 
         <div className="mt-8">
-          <PromptEditor key={editorKey} prompt={prompt} initialSections={sections} canEdit={isOwner} />
+          <PromptEditor
+            key={editorKey}
+            prompt={prompt}
+            initialSections={sections}
+            canEdit={isOwner}
+            canComment={canComment}
+          />
         </div>
       </motion.main>
 

@@ -135,6 +135,18 @@
   }
 }
 
+/* Maker-Checker comment highlights — CodeMirror mark decorations (text untouched) */
+.cm-comment {
+  background-color: color-mix(in oklab, var(--brand) 18%, transparent);
+  border-bottom: 2px solid color-mix(in oklab, var(--brand) 55%, transparent);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.cm-comment-changed {
+  background-color: color-mix(in oklab, var(--destructive) 16%, transparent);
+  border-bottom: 2px dashed var(--destructive);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
