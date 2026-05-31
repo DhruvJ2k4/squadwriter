@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase"
 import { ProjectList } from "@/components/projects/ProjectList"
 import { NewProjectModal } from "@/components/projects/NewProjectModal"
 import { Button } from "@/components/ui/button"
+import { UserMenu } from "@/components/ui/UserMenu"
 import { formatRelativeTime } from "@/lib/utils"
 
 interface InviteView {
@@ -20,7 +21,7 @@ interface InviteView {
 }
 
 export function Dashboard() {
-  const { user, profile, signOut } = useAuth()
+  const { user } = useAuth()
   const { projects, loading, createProject, setArchived } = useProjects()
   const { items: myActivity } = useActivity({ actorId: user?.id, enabled: !!user, limit: 6 })
   const [createOpen, setCreateOpen] = useState(false)
@@ -104,12 +105,7 @@ export function Dashboard() {
             className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.1em] bg-brand animate-caret-blink"
           />
         </div>
-        <div className="flex items-center gap-4 font-mono text-xs text-muted-foreground">
-          <span>@{profile?.username}</span>
-          <Button variant="ghost" size="sm" onClick={() => void signOut()} className="font-mono text-xs">
-            Sign out
-          </Button>
-        </div>
+        <UserMenu />
       </header>
 
       <motion.main

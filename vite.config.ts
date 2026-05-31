@@ -11,4 +11,6 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // Largest chunks are the app shell + the on-demand CodeMirror/emoji bundles.
+  build: { chunkSizeWarningLimit: 800 },
 })

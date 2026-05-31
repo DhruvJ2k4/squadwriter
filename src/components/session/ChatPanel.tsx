@@ -1,6 +1,4 @@
-import { useEffect, useRef, useState } from "react"
-import data from "@emoji-mart/data"
-import Picker from "@emoji-mart/react"
+import { lazy, Suspense, useEffect, useRef, useState } from "react"
 import { Smile } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,6 +7,35 @@ import { cn } from "@/lib/utils"
 import type { ChatMessage } from "@/hooks/useSession"
 
 const STICKERS = ["🎉", "🔥", "👍", "✅", "❤️", "😂", "🙌", "🚀"]
+
+// Lazy: emoji-mart (picker + its large data set) loads only when opened.
+const LazyEmojiPicker = lazy(() => import("@emoji-mart/react"))
+
+function EmojiPicker({ onSelect }: { onSelect: (native: string) => void }) {
+  const [data, setData] = useState<unknown>(null)
+  useEffect(() => {
+    let active = true
+    void import("@emoji-mart/data").then((m) => {
+      if (active) setData(m.default)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const loading = <div className="p-6 text-center font-mono text-xs text-muted-foreground">Loading…</div>
+  if (!data) return loading
+  return (
+    <Suspense fallback={loading}>
+      <LazyEmojiPicker
+        data={data}
+        theme="dark"
+        previewPosition="none"
+        onEmojiSelect={(emoji: { native: string }) => onSelect(emoji.native)}
+      />
+    </Suspense>
+  )
+}
 
 interface Props {
   messages: ChatMessage[]
@@ -93,12 +120,7 @@ export function ChatPanel({ messages, currentUserId, onSend }: Props) {
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto border-0 p-0" align="end">
-              <Picker
-                data={data}
-                theme="dark"
-                previewPosition="none"
-                onEmojiSelect={(emoji: { native: string }) => setText((t) => t + emoji.native)}
-              />
+              <EmojiPicker onSelect={(native) => setText((t) => t + native)} />
             </PopoverContent>
           </Popover>
           <Button size="sm" onClick={send} className="h-8 shrink-0 bg-brand text-brand-foreground hover:bg-brand/90">

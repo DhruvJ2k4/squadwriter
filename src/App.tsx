@@ -1,11 +1,17 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
+import { lazy, Suspense } from "react"
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom"
 import { motion } from "framer-motion"
 import { AuthProvider, useAuth } from "@/hooks/useAuth"
 import { Login } from "@/pages/Login"
 import { Dashboard } from "@/pages/Dashboard"
 import { ProjectPage } from "@/pages/ProjectPage"
-import { PromptPage } from "@/pages/PromptPage"
-import { SessionPage } from "@/pages/SessionPage"
+
+// Heavy/admin routes are code-split so Login + Dashboard stay light.
+const PromptPage = lazy(() => import("@/pages/PromptPage").then((m) => ({ default: m.PromptPage })))
+const SessionPage = lazy(() => import("@/pages/SessionPage").then((m) => ({ default: m.SessionPage })))
+const AdminConsole = lazy(() =>
+  import("@/components/admin/AdminConsole").then((m) => ({ default: m.AdminConsole })),
+)
 
 function Splash() {
   return (
@@ -28,23 +34,32 @@ function Splash() {
 
 function AppRoutes() {
   const { session, profile, loading, profileReady } = useAuth()
+  const location = useLocation()
 
-  // Still resolving the session, or the session is known but the profile fetch
-  // hasn't settled yet — show the splash to avoid a flash of the wrong screen.
   if (loading || (session && !profileReady)) return <Splash />
-
-  // Unauthenticated, or authenticated without a profile (needs a username).
-  // Login renders sign-in / sign-up or the username step based on auth state.
   if (!session || !profile) return <Login />
 
   return (
-    <Routes>
-      <Route path="/" element={<Dashboard />} />
-      <Route path="/projects/:id" element={<ProjectPage />} />
-      <Route path="/prompts/:promptId" element={<PromptPage />} />
-      <Route path="/sessions/:id" element={<SessionPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <Suspense fallback={<Splash />}>
+      <motion.div
+        key={location.pathname}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
+      >
+        <Routes location={location}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/projects/:id" element={<ProjectPage />} />
+          <Route path="/prompts/:promptId" element={<PromptPage />} />
+          <Route path="/sessions/:id" element={<SessionPage />} />
+          <Route
+            path="/admin"
+            element={profile.is_admin ? <AdminConsole /> : <Navigate to="/" replace />}
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </motion.div>
+    </Suspense>
   )
 }
 

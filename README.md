@@ -50,5 +50,6 @@ variables prefixed with `VITE_`:
 
 ## Build status
 
-Stages 1–8 complete: scaffold · database + RLS · auth + domain lock · projects + membership ·
-prompts (four types) · the editor · versions + diff · deploy config.
+All 13 stages complete: scaffold · database + RLS · auth + domain lock · projects + membership ·
+prompts (four types) · the editor · versions + diff · deploy · maker-checker comments ·
+suggestions + log · live session (room/presence/chat) · merge + finalize · admin console + polish.
